@@ -1,0 +1,1 @@
+create or replace schema SCHEMA_ONE;

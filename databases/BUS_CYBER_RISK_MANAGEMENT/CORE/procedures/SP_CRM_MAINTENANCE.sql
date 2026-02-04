@@ -1,0 +1,360 @@
+CREATE OR REPLACE PROCEDURE "SP_CRM_MAINTENANCE"()
+RETURNS VARCHAR(16777216)
+LANGUAGE SQL
+COMMENT='Perform maintenance steps on CYBER_RISK_MANAGEMENT database'
+EXECUTE AS OWNER
+AS '
+DECLARE
+Appl varchar := ''SP_CRM_MAINTENANCE'';
+DataCategory varchar;
+RECORD_COUNT number;
+DaysToRetain_ALERTLOG number; -- 240114
+DaysToRetain_MsgLog number;
+DaysToRetain_RAW_HWAM number;
+DaysToRetain_RAW_TENABLE_VUL number;
+DaysToRetain_ASSETINTERFACE number;
+DaysToRetain_BACKUP_Object number := 30;
+OBJECTS_TO_DROP NUMBER;
+OBJECTS_DROPPED NUMBER;
+DROP_COMMAND VARCHAR;
+ExceptionMsg varchar := ''Default'';
+Msg varchar;
+StartOfProcedure datetime := current_timestamp();
+CRM_logic_exception exception (-20002, ''Raised CRM_logic_exception.'');
+BEGIN
+
+CALL CORE.SP_CRM_START_PROCEDURE(:Appl);
+
+DaysToRetain_ALERTLOG := (select PARMINT FROM CORE.Config where ParmName = ''DaysToRetain_ALERTLOG''); -- 240114
+DaysToRetain_ASSETINTERFACE := (select PARMINT FROM CORE.Config where ParmName = ''DaysToRetain_ASSETINTERFACE''); -- 230922
+DaysToRetain_MsgLog := (select PARMINT FROM CORE.Config where ParmName = ''DaysToRetain_MsgLog'');
+DaysToRetain_RAW_HWAM := (select PARMINT FROM CORE.Config where ParmName = ''DaysToRetain_RAW_HWAM'');
+DaysToRetain_RAW_TENABLE_VUL := (select PARMINT FROM CORE.Config where ParmName = ''DaysToRetain_RAW_TENABLE_VUL'');
+
+IF (:DaysToRetain_ALERTLOG = 0 or :DaysToRetain_MsgLog = 0 or :DaysToRetain_RAW_HWAM = 0 or :DaysToRetain_RAW_TENABLE_VUL = 0 or :DaysToRetain_ASSETINTERFACE = 0) THEN
+    Msg := ''WARNING: Config parameter not available'';
+    CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+    COMMIT;
+    return Msg;
+END IF;
+
+BEGIN TRANSACTION; -- 240114
+--
+-- Age ALERTLOG
+--
+DELETE FROM CORE.ALERTLOG WHERE DATEDIFF(day,insert_date,current_date()) > :DaysToRetain_ALERTLOG;
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''ALERTLOG deleted (INSERT_DATE >'' || :DaysToRetain_ALERTLOG || '')='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+COMMIT;
+
+BEGIN TRANSACTION;
+--
+-- Age MSGLOG
+--
+DELETE FROM CORE.MSGLOG WHERE DATEDIFF(day,insert_date,current_date()) > :DaysToRetain_MsgLog;
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''MSGLOG deleted (INSERT_DATE >'' || :DaysToRetain_MsgLog || '')='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+COMMIT;
+
+BEGIN TRANSACTION;
+-- 230918
+-- Age RAW_HWAM
+--
+DELETE FROM CORE.RAW_HWAM WHERE DATEDIFF(day,insert_date,current_date()) > :DaysToRetain_RAW_HWAM;
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''RAW_HWAM deleted (INSERT_DATE >'' || :DaysToRetain_RAW_HWAM || '')='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+COMMIT;
+
+BEGIN TRANSACTION;
+-- 230918
+-- Age RAW_TENABLE_VUL
+--
+DELETE FROM CORE.RAW_TENABLE_VUL WHERE DATEDIFF(day,insert_date,current_date()) > :DaysToRetain_RAW_TENABLE_VUL;
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''RAW_TENABLE_VUL deleted (INSERT_DATE >'' || :DaysToRetain_RAW_TENABLE_VUL || '')='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+COMMIT;
+
+-- 
+-- 230922
+-- Age ASSETINTERFACE tables
+--
+BEGIN TRANSACTION;
+-- 230922
+-- Age ASSETINTERFACE Tables
+--
+DELETE FROM ASSETINTERFACE_FQDN
+WHERE ID IN (SELECT ai.ID 
+    FROM CORE.ASSET a
+    JOIN CORE.ASSETINTERFACE_FQDN ai on ai.dw_asset_id = a.dw_asset_id
+    where DATEDIFF(day, ai.LAST_CONFIRMED_TIME, a.LAST_CONFIRMED_TIME) > :DaysToRetain_ASSETINTERFACE);
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''ASSETINTERFACE_FQDN deleted (LAST_CONFIRMED_TIME >'' || :DaysToRetain_ASSETINTERFACE || '')='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+
+DELETE FROM ASSETINTERFACE_HOSTNAME
+WHERE ID IN (SELECT ai.ID 
+    FROM CORE.ASSET a
+    JOIN CORE.ASSETINTERFACE_HOSTNAME ai on ai.dw_asset_id = a.dw_asset_id
+    where DATEDIFF(day, ai.LAST_CONFIRMED_TIME, a.LAST_CONFIRMED_TIME) > :DaysToRetain_ASSETINTERFACE);
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''ASSETINTERFACE_HOSTNAME deleted (LAST_CONFIRMED_TIME >'' || :DaysToRetain_ASSETINTERFACE || '')='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+
+DELETE FROM ASSETINTERFACE_IPV4
+WHERE ID IN (SELECT ai.ID 
+    FROM CORE.ASSET a
+    JOIN CORE.ASSETINTERFACE_IPV4 ai on ai.dw_asset_id = a.dw_asset_id
+    where DATEDIFF(day, ai.LAST_CONFIRMED_TIME, a.LAST_CONFIRMED_TIME) > :DaysToRetain_ASSETINTERFACE);
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''ASSETINTERFACE_IPV4 deleted (LAST_CONFIRMED_TIME >'' || :DaysToRetain_ASSETINTERFACE || '')='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+
+DELETE FROM ASSETINTERFACE_IPV6
+WHERE ID IN (SELECT ai.ID 
+    FROM CORE.ASSET a
+    JOIN CORE.ASSETINTERFACE_IPV6 ai on ai.dw_asset_id = a.dw_asset_id
+    where DATEDIFF(day, ai.LAST_CONFIRMED_TIME, a.LAST_CONFIRMED_TIME) > :DaysToRetain_ASSETINTERFACE);
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''ASSETINTERFACE_IPV6 deleted (LAST_CONFIRMED_TIME >'' || :DaysToRetain_ASSETINTERFACE || '')='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+
+DELETE FROM ASSETINTERFACE_MACADDRESS
+WHERE ID IN (SELECT ai.ID 
+    FROM CORE.ASSET a
+    JOIN CORE.ASSETINTERFACE_MACADDRESS ai on ai.dw_asset_id = a.dw_asset_id
+    where DATEDIFF(day, ai.LAST_CONFIRMED_TIME, a.LAST_CONFIRMED_TIME) > :DaysToRetain_ASSETINTERFACE);
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''ASSETINTERFACE_MACADDRESS deleted (LAST_CONFIRMED_TIME >'' || :DaysToRetain_ASSETINTERFACE || '')='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+
+DELETE FROM ASSETINTERFACE_NETBIOSNAME
+WHERE ID IN (SELECT ai.ID 
+    FROM CORE.ASSET a
+    JOIN CORE.ASSETINTERFACE_NETBIOSNAME ai on ai.dw_asset_id = a.dw_asset_id
+    where DATEDIFF(day, ai.LAST_CONFIRMED_TIME, a.LAST_CONFIRMED_TIME) > :DaysToRetain_ASSETINTERFACE);
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''ASSETINTERFACE_NETBIOSNAME deleted (LAST_CONFIRMED_TIME >'' || :DaysToRetain_ASSETINTERFACE || '')='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+
+COMMIT;
+
+
+BEGIN TRANSACTION;
+--
+-- 240705 CR927
+--
+DELETE from VULMASTER 
+where dw_asset_id in (SELECT distinct vm.DW_ASSET_ID FROM VULMASTER vm
+    LEFT OUTER JOIN ASSET a on a.DW_ASSET_ID = vm.DW_ASSET_ID
+    where a.DW_ASSET_ID IS NULL);
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''VULMASTER (with no associated Asset) deleted='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+
+COMMIT;
+
+BEGIN TRANSACTION;
+--
+-- 240705 CR927
+--
+DELETE from VULPLUGINS_MASTER 
+where dw_asset_id in (SELECT distinct vm.DW_ASSET_ID FROM VULPLUGINS_MASTER vm
+    LEFT OUTER JOIN ASSET a on a.DW_ASSET_ID = vm.DW_ASSET_ID
+    where a.DW_ASSET_ID IS NULL);
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''VULPLUGINS_MASTER (with no associated Asset) deleted='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+
+COMMIT;
+
+
+--
+-- DROP BACKUP VIEWS
+--
+select count(1) into OBJECTS_TO_DROP
+    from INFORMATION_SCHEMA.VIEWS 
+    WHERE TABLE_CATALOG = ''BUS_CYBER_RISK_MANAGEMENT'' and TABLE_SCHEMA = ''BACKUP'' and datediff(d,LAST_ALTERED::DATE,current_date()) > :DaysToRetain_BACKUP_Object;
+
+OBJECTS_DROPPED := 0;
+
+WHILE (:OBJECTS_DROPPED < :OBJECTS_TO_DROP) DO
+	BEGIN
+
+    select TOP 1 ''DROP View '' || TABLE_SCHEMA || ''.'' || TABLE_NAME || '';'' into DROP_COMMAND
+    from INFORMATION_SCHEMA.VIEWS 
+    WHERE TABLE_CATALOG = ''BUS_CYBER_RISK_MANAGEMENT'' and TABLE_SCHEMA = ''BACKUP'' and datediff(d,LAST_ALTERED::DATE,current_date()) > :DaysToRetain_BACKUP_Object;
+
+    execute immediate DROP_COMMAND;
+
+    CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:DROP_COMMAND);
+
+    OBJECTS_DROPPED := OBJECTS_DROPPED + 1;
+    END;
+	END WHILE;
+
+--
+-- DROP BACKUP PROCEDURES WITH ZERO ARGUMENTS
+--
+select count(1) into OBJECTS_TO_DROP
+    from INFORMATION_SCHEMA.PROCEDURES 
+    WHERE PROCEDURE_CATALOG = ''BUS_CYBER_RISK_MANAGEMENT'' and PROCEDURE_SCHEMA = ''BACKUP'' and datediff(d,LAST_ALTERED::DATE,current_date()) > :DaysToRetain_BACKUP_Object
+    and ARGUMENT_SIGNATURE = ''()'';
+
+OBJECTS_DROPPED := 0;
+
+WHILE (:OBJECTS_DROPPED < :OBJECTS_TO_DROP) DO
+	BEGIN
+
+    select TOP 1 ''DROP Procedure '' || PROCEDURE_SCHEMA || ''.'' || PROCEDURE_NAME || ''();'' into DROP_COMMAND
+    from INFORMATION_SCHEMA.PROCEDURES 
+    WHERE PROCEDURE_CATALOG = ''BUS_CYBER_RISK_MANAGEMENT'' and PROCEDURE_SCHEMA = ''BACKUP'' and datediff(d,LAST_ALTERED::DATE,current_date()) > :DaysToRetain_BACKUP_Object
+    and ARGUMENT_SIGNATURE = ''()'';
+
+    execute immediate DROP_COMMAND;
+
+    CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:DROP_COMMAND);
+
+    OBJECTS_DROPPED := OBJECTS_DROPPED + 1;
+    END;
+	END WHILE;
+
+--
+-- DROP BACKUP PROCEDURES WITH ONE ARGUMENT
+--
+select count(1) into OBJECTS_TO_DROP
+    from INFORMATION_SCHEMA.PROCEDURES 
+    WHERE PROCEDURE_CATALOG = ''BUS_CYBER_RISK_MANAGEMENT'' and PROCEDURE_SCHEMA = ''BACKUP'' and datediff(d,LAST_ALTERED::DATE,current_date()) > :DaysToRetain_BACKUP_Object
+    and ARGUMENT_SIGNATURE <> ''()''
+    and regexp_count(ARGUMENT_SIGNATURE, '','', 1) = 0;
+
+OBJECTS_DROPPED := 0;
+
+WHILE (:OBJECTS_DROPPED < :OBJECTS_TO_DROP) DO
+	BEGIN
+    select TOP 1 ''DROP Procedure '' || PROCEDURE_SCHEMA || ''.'' || PROCEDURE_NAME || ''('' || trim(split_part(ARGUMENT_SIGNATURE,'' '',2)) || '';'' into DROP_COMMAND
+    from INFORMATION_SCHEMA.PROCEDURES 
+    WHERE PROCEDURE_CATALOG = ''BUS_CYBER_RISK_MANAGEMENT'' and PROCEDURE_SCHEMA = ''BACKUP'' and datediff(d,LAST_ALTERED::DATE,current_date()) > :DaysToRetain_BACKUP_Object
+    and ARGUMENT_SIGNATURE <> ''()''
+    and regexp_count(ARGUMENT_SIGNATURE, '','', 1) = 0;
+
+    execute immediate DROP_COMMAND;
+
+    CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:DROP_COMMAND);
+
+    OBJECTS_DROPPED := OBJECTS_DROPPED + 1;
+    END;
+	END WHILE;
+
+--
+-- DROP BACKUP FUNCTIONS WITH ZERO ARGUMENTS
+--
+select count(1) into OBJECTS_TO_DROP
+    from INFORMATION_SCHEMA.FUNCTIONS 
+    WHERE FUNCTION_CATALOG = ''BUS_CYBER_RISK_MANAGEMENT'' and FUNCTION_SCHEMA = ''BACKUP'' and datediff(d,LAST_ALTERED::DATE,current_date()) > :DaysToRetain_BACKUP_Object
+    and ARGUMENT_SIGNATURE = ''()'';
+
+OBJECTS_DROPPED := 0;
+
+WHILE (:OBJECTS_DROPPED < :OBJECTS_TO_DROP) DO
+	BEGIN
+
+    select TOP 1 ''DROP Function '' || FUNCTION_SCHEMA || ''.'' || FUNCTION_NAME || ''();'' into DROP_COMMAND
+    from INFORMATION_SCHEMA.FUNCTIONS 
+    WHERE FUNCTION_CATALOG = ''BUS_CYBER_RISK_MANAGEMENT'' and FUNCTION_SCHEMA = ''BACKUP'' and datediff(d,LAST_ALTERED::DATE,current_date()) > :DaysToRetain_BACKUP_Object
+    and ARGUMENT_SIGNATURE = ''()'';
+
+    execute immediate DROP_COMMAND;
+
+    CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:DROP_COMMAND);
+
+    OBJECTS_DROPPED := OBJECTS_DROPPED + 1;
+    END;
+	END WHILE;
+
+--
+-- DROP BACKUP FUNCTIONS WITH ONE ARGUMENT
+--
+select count(1) into OBJECTS_TO_DROP
+    from INFORMATION_SCHEMA.FUNCTIONS 
+    WHERE FUNCTION_CATALOG = ''BUS_CYBER_RISK_MANAGEMENT'' and FUNCTION_SCHEMA = ''BACKUP'' and datediff(d,LAST_ALTERED::DATE,current_date()) > :DaysToRetain_BACKUP_Object
+    and ARGUMENT_SIGNATURE <> ''()''
+    and regexp_count(ARGUMENT_SIGNATURE, '','', 1) = 0; 
+
+OBJECTS_DROPPED := 0;
+
+WHILE (:OBJECTS_DROPPED < :OBJECTS_TO_DROP) DO
+	BEGIN
+    select TOP 1 ''DROP Function '' || FUNCTION_SCHEMA || ''.'' || FUNCTION_NAME || ''('' || trim(split_part(ARGUMENT_SIGNATURE,'' '',2)) || '';'' into DROP_COMMAND
+    from INFORMATION_SCHEMA.FUNCTIONS 
+    WHERE FUNCTION_CATALOG = ''BUS_CYBER_RISK_MANAGEMENT'' and FUNCTION_SCHEMA = ''BACKUP'' and datediff(d,LAST_ALTERED::DATE,current_date()) > :DaysToRetain_BACKUP_Object
+    and ARGUMENT_SIGNATURE <> ''()''
+    and regexp_count(ARGUMENT_SIGNATURE, '','', 1) = 0;
+
+    execute immediate DROP_COMMAND;
+
+    CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:DROP_COMMAND);
+
+    OBJECTS_DROPPED := OBJECTS_DROPPED + 1;
+    END;
+	END WHILE;
+
+--
+-- DROP BACKUP FUNCTIONS WITH TWO ARGUMENTS
+--
+select count(1) into OBJECTS_TO_DROP
+    from INFORMATION_SCHEMA.FUNCTIONS 
+    WHERE FUNCTION_CATALOG = ''BUS_CYBER_RISK_MANAGEMENT'' and FUNCTION_SCHEMA = ''BACKUP'' and datediff(d,LAST_ALTERED::DATE,current_date()) > :DaysToRetain_BACKUP_Object
+    and ARGUMENT_SIGNATURE <> ''()''
+    and regexp_count(ARGUMENT_SIGNATURE, '','', 1) = 1; 
+
+OBJECTS_DROPPED := 0;
+
+WHILE (:OBJECTS_DROPPED < :OBJECTS_TO_DROP) DO
+	BEGIN
+    select TOP 1 ''DROP Function '' || FUNCTION_SCHEMA || ''.'' || FUNCTION_NAME 
+        || ''('' || replace((split_part(trim(split_part(ARGUMENT_SIGNATURE,'','',1)),'' '',2) 
+        || '','' || split_part(trim(split_part(ARGUMENT_SIGNATURE,'','',2)),'' '',2)),'')'','''') || '')''  || '';'' into DROP_COMMAND
+    from INFORMATION_SCHEMA.FUNCTIONS 
+    WHERE FUNCTION_CATALOG = ''BUS_CYBER_RISK_MANAGEMENT'' and FUNCTION_SCHEMA = ''BACKUP'' and datediff(d,LAST_ALTERED::DATE,current_date()) > :DaysToRetain_BACKUP_Object
+    and ARGUMENT_SIGNATURE <> ''()''
+    and regexp_count(ARGUMENT_SIGNATURE, '','', 1) = 1;
+
+    execute immediate DROP_COMMAND;
+
+    CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:DROP_COMMAND);
+
+    OBJECTS_DROPPED := OBJECTS_DROPPED + 1;
+    END;
+	END WHILE;
+    
+CALL CORE.SP_CRM_END_PROCEDURE(:Appl);
+return ''Success'';
+
+EXCEPTION
+  when statement_error then
+    insert into CORE.ALERTLOG (APPL,CUSTOM_ERRMSG,ERRTYPE,SQLCODE,SQLERRM,SQLSTATE) VALUES(:APPL,:ExceptionMsg,''Statement_Error'',:SQLCODE,:SQLERRM,:SQLSTATE);
+    raise;
+  when CRM_logic_exception then
+    insert into CORE.ALERTLOG (APPL,CUSTOM_ERRMSG,ERRTYPE,SQLCODE,SQLERRM,SQLSTATE) VALUES(:APPL,:ExceptionMsg,''CRM_logic_exception'',:SQLCODE,:SQLERRM,:SQLSTATE);
+    raise;
+  when other then
+    insert into CORE.ALERTLOG (APPL,CUSTOM_ERRMSG,ERRTYPE,SQLCODE,SQLERRM,SQLSTATE) VALUES(:APPL,:ExceptionMsg,''Other error'',:SQLCODE,:SQLERRM,:SQLSTATE);
+    raise;
+END
+';

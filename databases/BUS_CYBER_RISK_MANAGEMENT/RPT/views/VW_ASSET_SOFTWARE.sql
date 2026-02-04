@@ -1,0 +1,68 @@
+create or replace view VW_ASSET_SOFTWARE(
+	ASSET_ID_TATTOO,
+	DW_SWAM_ID,
+	COMPONENT_ACRONYM,
+	DATACENTER_ID,
+	DATEINSTALLED,
+	DEVICETYPE,
+	DW_ASSET_ID,
+	FIRSTSEEN,
+	IS_FROM_AWS_FEED,
+	IS_FORESCOUT_MANAGED,
+	IS_SCANNABLE,
+	IS_TENABLE_CREDENTIALED_SCAN,
+	LASTSEEN,
+	MAJOR,
+	MINOR,
+	SOFTWARENAME,
+	SOURCE_TOOL,
+	SWAM_CATEGORY,
+	SWAM_SUBCATEGORY,
+	ACRONYM,
+	GROUP_ACRONYM,
+	MEFSTATUS,
+	TLC_PHASE,
+	IS_MARKETPLACE,
+	HVASTATUS,
+	OATO_CATEGORY,
+	SYSTEM_ID,
+	VENDOR,
+	VERSION,
+	DATACENTER_ACRONYM
+) COMMENT='View reports software related to assets and dimentional values for dashboard\t'
+ as
+SELECT 
+sw.ASSET_ID_TATTOO
+,sw.DW_SWAM_ID
+,dlookup.COMPONENT_ACRONYM
+,sw.DATACENTER_ID
+,sw.DATEINSTALLED
+,sw.DEVICETYPE
+,sw.DW_ASSET_ID
+,sw.FIRSTSEEN
+,sw.IS_FROM_AWS_FEED -- 240709 CR931
+,sw.IS_FORESCOUT_MANAGED -- 240709 CR931
+,sw.IS_SCANNABLE -- 240709 CR931
+,sw.IS_TENABLE_CREDENTIALED_SCAN -- 240709 CR931
+,sw.LASTSEEN
+,sw.MAJOR
+,sw.MINOR
+,sw.SOFTWARENAME
+,sw.SOURCE_TOOL
+,sw.SWAM_CATEGORY
+,sw.SWAM_SUBCATEGORY -- 240709 CR931
+,dlookup.ACRONYM
+,dlookup.GROUP_ACRONYM
+,dlookup.mefstatus
+,dlookup.tlc_phase
+,dlookup.is_marketplace
+,dlookup.hvastatus
+,dlookup.oato_category
+,dlookup.ID SYSTEM_ID
+,sw.VENDOR
+,sw.VERSION
+,IFNULL(sw.datacenter_acronym, s.primary_operating_location_acronym) as datacenter_acronym
+from RPT.V_DIMENSIONAL_LOOKUP dlookup
+join CORE.VW_SYSTEMS s on dlookup.ID = s.system_id
+left outer join CORE.VW_ASSET_SOFTWARE sw on dlookup.id = sw.system_id
+;

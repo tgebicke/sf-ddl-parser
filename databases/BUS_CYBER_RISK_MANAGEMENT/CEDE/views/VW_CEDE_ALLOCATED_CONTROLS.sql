@@ -1,0 +1,25 @@
+create or replace view VW_CEDE_ALLOCATED_CONTROLS(
+	REPORTDATE,
+	OVERALL_CONTROL_STATUS,
+	AUTHORIZATION_PACKAGE,
+	CONTROL_NAME,
+	CONTROL_NUMBER,
+	CONTROL_ELEMENT,
+	CONTROL_ELEMENT_NUMBER,
+	PRIVATE_IMP_UPDATED_DATE,
+	PRIVATE_IMPLEMENTATION_DETAILS
+) COMMENT='Contains allocated controls details and Controls elements'
+ as
+SELECT 
+(select Report_Date FROM TABLE(CORE.FN_CRM_GET_REPORT_ID(0))) as ReportDate
+,Alloc.OVERALL_CONTROL_STATUS 
+,s.Authorization_Package 
+,Alloc.Control_Name 
+,Alloc.Control_Number 
+,Alloc.CONTROL_ELEMENT
+,Alloc.control_element_number
+,Alloc.Private_Imp_Updated_Date 
+,Alloc.PRIVATE_IMPLEMENTATION_DETAILS 
+FROM CORE.VW_Systems  s 
+join CORE.ALLOCATEDCONTROL Alloc on Alloc.SYSTEM_ID = s.SYSTEM_ID
+JOIN CORE.CORECONTROLS core on core.CONTROL = Alloc.CONTROL_NUMBER;

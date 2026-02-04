@@ -1,0 +1,11 @@
+create or replace TABLE CONFIG (
+	ID NUMBER(38,0) NOT NULL autoincrement start 1 increment 1 order,
+	COMMENT VARCHAR(16777216),
+	INSERT_DATE TIMESTAMP_LTZ(9) NOT NULL,
+	PARMDATE TIMESTAMP_LTZ(9),
+	PARMINT NUMBER(38,0),
+	PARMNAME VARCHAR(16777216),
+	PARMVARCHAR VARCHAR(16777216),
+	primary key (ID)
+)COMMENT='CRM stored procedure parameter list\t'
+;

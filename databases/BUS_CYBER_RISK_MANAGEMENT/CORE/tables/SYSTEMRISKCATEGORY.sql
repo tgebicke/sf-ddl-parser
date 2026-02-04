@@ -1,0 +1,7 @@
+create or replace TABLE SYSTEMRISKCATEGORY (
+	SYSTEMRISKCATEGORY_ID NUMBER(38,0) NOT NULL,
+	DESCRIPTION VARCHAR(16777216) NOT NULL,
+	INSERT_DATE TIMESTAMP_LTZ(9) NOT NULL,
+	primary key (SYSTEMRISKCATEGORY_ID)
+)COMMENT='Lookup Table of System Risk Category. Each category ID associated with description\t'
+;

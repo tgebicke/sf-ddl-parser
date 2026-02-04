@@ -1,0 +1,193 @@
+create or replace secure view SEC_VW_MARKETPLACE_VUL_BUS_MARKETPLACE_MSI_V2(
+	COMPONENT_ACRONYM,
+	DATACENTER_ACRONYM,
+	DATACENTER_ID,
+	SYSTEM_ACRONYM,
+	SYSTEM_ID,
+	HVASTATUS,
+	IS_MARKETPLACE,
+	MEFSTATUS,
+	OATO_CATEGORY,
+	TLC_PHASE,
+	REPORT_ID,
+	REPORT_DATE,
+	IS_ENDOFMONTH,
+	DW_VUL_ID,
+	CVE,
+	DAYSSINCEDISCOVERY,
+	IS_BOD,
+	BODDUEDATE,
+	CVSSV2BASESCORE,
+	CVSSV3BASESCORE,
+	EPSS,
+	EPSS_PERCENTILE,
+	EXPLOITAVAILABLE,
+	FISMASEVERITY,
+	MITIGATIONSTATUS,
+	DATEMITIGATED,
+	FIRSTSEEN,
+	LASTFOUND,
+	VUL_DATECREATED,
+	PLUGIN_ID,
+	FAMILY_NAME,
+	SIGNATURE,
+	SOLUTION,
+	DW_ASSET_ID,
+	ASSET_ID_TATTOO,
+	BIOS_GUID,
+	COMPUTER_TYPE,
+	DEVICETYPE,
+	ENVIRONMENT,
+	FQDN,
+	HOSTNAME,
+	IPV4,
+	IPV6,
+	MACADDRESS,
+	NETBIOSNAME,
+	OS,
+	OS_VERSION,
+	SOURCE_TOOL_LASTSEEN,
+	TENABLEUUID,
+	VULNRISKTOLERANCE,
+	POAM_ID,
+	OVERALL_STATUS
+) COMMENT='Provides overdue vulns and related asset details for Marketplace Systems only (Historical)'
+ as
+--
+-- Modeled after CORE.VW_VULN_ROLLING60DAYS which is used to create RPT.TEMP_VULN_FV_ROLLING60DAYS which is then
+-- used by RPT.VW_VULN_ROLLING60DAYS
+--
+with 
+w_mkpl_systems as (select 
+    COMPONENT_ACRONYM
+    ,ACRONYM as SYSTEM_ACRONYM
+    ,SYSTEM_ID
+    ,HVASTATUS
+    ,IS_MARKETPLACE
+    ,MEFSTATUS
+    ,OATO_CATEGORY
+    ,TLC_PHASE
+    FROM BUS_CYBER_RISK_MANAGEMENT.CORE.VW_SYSTEMS where IS_MARKETPLACE = true and COMPONENT_ACRONYM not in ('Not specified','FCHCO','CMCHO')),
+w_report_ids as (-- Obtain REPORT_ID for the most recent end-of-month data and REPORT_ID for todays data
+    (SELECT TOP 1 REPORT_ID, REPORT_DATE, IS_ENDOFMONTH 
+    FROM BUS_CYBER_RISK_MANAGEMENT.CORE.REPORT_IDS WHERE IS_ENDOFMONTH = 1 and IS_VIABLE = 1 ORDER BY REPORT_ID DESC)
+    UNION ALL
+    (SELECT TOP 1 REPORT_ID, REPORT_DATE, IS_ENDOFMONTH 
+    FROM BUS_CYBER_RISK_MANAGEMENT.CORE.REPORT_IDS WHERE IS_ENDOFMONTH = 0 and IS_VIABLE = 1 ORDER BY REPORT_ID DESC)
+    ),
+w_assethist as (select 
+    ah.DW_ASSET_ID
+    ,ah.ASSET_ID_TATTOO
+    ,ah.BIOS_GUID
+    ,ah.COMPUTER_TYPE
+    ,ah.DATACENTER_ID
+    ,ah.DEVICETYPE
+    ,ah.ENVIRONMENT
+    ,r.IS_ENDOFMONTH
+    ,ah.OS
+    ,ah.OS_VERSION
+    ,r.REPORT_DATE
+    ,ah.REPORT_ID
+    ,ah.SOURCE_TOOL_LASTSEEN
+    ,ah.SYSTEM_ID
+    ,ah.TENABLEUUID
+    ,ah.VULNRISKTOLERANCE
+    FROM w_report_ids r
+    join BUS_CYBER_RISK_MANAGEMENT.CORE.ASSETHIST ah on ah.REPORT_ID = r.REPORT_ID)
+SELECT
+--
+-- SYSTEM
+--
+sys.COMPONENT_ACRONYM
+,dc.ACRONYM as DATACENTER_ACRONYM
+,ah.DATACENTER_ID
+,sys.SYSTEM_ACRONYM
+,sys.SYSTEM_ID
+,sys.HVASTATUS
+,sys.IS_MARKETPLACE
+,sys.MEFSTATUS
+,sys.OATO_CATEGORY
+,sys.TLC_PHASE
+--
+-- REPORT_DATE (Snapshot)
+--
+,ah.REPORT_ID
+,ah.REPORT_DATE
+,ah.IS_ENDOFMONTH
+--
+-- VUL
+--
+,vh.DW_VUL_ID
+,vh.CVE
+,DATEDIFF(day,vh.FIRSTSEEN,vh.LASTFOUND) as DAYSSINCEDISCOVERY
+,case when coalesce(bodcat.Is_Deleted,1) = 0 then 'Yes' else 'No' end as IS_BOD
+,bodcat.BODDUEDATE
+,vh.CVSSV2BASESCORE
+,vh.CVSSV3BASESCORE
+,epss.EPSS
+--,case 
+--    when epss.EPSS <= 0 then '<=0%'
+--    when epss.EPSS > 0 and epss.EPSS <= 0.25 then '> 0% and <= 25%'
+--    when epss.EPSS > 0.25 and epss.EPSS <= 0.50 then '> 25% and <= 50%'
+--    when epss.EPSS > 0.50 and epss.EPSS <= 0.75 then '> 50% and <= 75%'
+--    when epss.EPSS > 0.75 and epss.EPSS <= 1 then '> 75% and <= 100%'
+--    ELSE 'NULL'
+--    end as EPSS_FILTER
+,epss.PERCENTILE as EPSS_PERCENTILE
+,vh.EXPLOITAVAILABLE
+,vh.FISMASEVERITY
+,vh.MITIGATIONSTATUS
+,vh.DATEMITIGATED
+,vh.FIRSTSEEN
+,vh.LASTFOUND
+,vh.VUL_DATECREATED
+--
+-- PLUGIN
+--
+,plug.PLUGIN_ID
+,plug.FAMILY_NAME
+,plug.SYNOPSIS as SIGNATURE
+,plug.SOLUTION
+--
+-- ASSET
+--
+,ah.DW_ASSET_ID
+,ah.ASSET_ID_TATTOO
+,ah.BIOS_GUID
+,ah.COMPUTER_TYPE
+,ah.DEVICETYPE
+,ah.ENVIRONMENT
+,aic.FQDN
+,aic.HOSTNAME
+,aic.IPV4
+,aic.IPV6
+,aic.MACADDRESS
+,aic.NETBIOSNAME
+,ah.OS
+,ah.OS_VERSION
+,ah.SOURCE_TOOL_LASTSEEN
+,ah.TENABLEUUID
+,ah.VULNRISKTOLERANCE
+--
+-- POAM
+--
+,pom.POAM_ID
+,pom.OVERALL_STATUS
+FROM w_mkpl_systems sys
+join w_assethist ah on ah.SYSTEM_ID = sys.SYSTEM_ID
+join BUS_CYBER_RISK_MANAGEMENT.CORE.ASSETINTERFACECOALESCEDHIST aic on aic.REPORT_ID = ah.REPORT_ID and aic.DW_ASSET_ID = ah.DW_ASSET_ID
+join BUS_CYBER_RISK_MANAGEMENT.CORE.VW_SYSTEMS dc on dc.SYSTEM_ID = ah.DATACENTER_ID
+join BUS_CYBER_RISK_MANAGEMENT.CORE.VULHIST vh on vh.REPORT_ID = ah.REPORT_ID and vh.DW_ASSET_ID = ah.DW_ASSET_ID
+join BUS_CYBER_RISK_MANAGEMENT.CORE.VULMASTER vm on vm.DW_VUL_ID = vh.DW_VUL_ID and vm.DELETIONREASON IS NULL
+left outer join BUS_CYBER_RISK_MANAGEMENT.CORE.KEV_CATALOG bodcat on bodcat.CVE = vh.CVE and bodcat.IS_DELETED = 0
+--
+-- There can be/are multiple PLUGIN_IDs per CVE but only one has traditionally been displayed
+--
+left outer join (select DW_VUL_ID,max(ID) as MAX_VULPLUGIN_ID FROM BUS_CYBER_RISK_MANAGEMENT.CORE.VULPLUGIN vp group by DW_VUL_ID) plugs on (plugs.DW_VUL_ID = vh.DW_VUL_ID)
+left outer join BUS_CYBER_RISK_MANAGEMENT.CORE.VULPLUGIN plug on plug.ID = plugs.MAX_VULPLUGIN_ID
+
+left outer join BUS_CYBER_RISK_MANAGEMENT.CORE.POAMHIST pom on pom.REPORT_ID = ah.REPORT_iD and pom.CVE = vh.CVE and pom.SYSTEM_ID = ah.SYSTEM_ID
+left outer join REF_LOOKUPS.PUBLIC.SEC_MV_EPSS_SCORES epss on epss.cve_id = vh.CVE
+WHERE (vh.MitigationStatus in ('open', 'reopened') or (vh.MitigationStatus = 'fixed' 
+    and vh.datemitigated > DATEADD(day,-60, ah.REPORT_DATE) and vh.datemitigated <= ah.REPORT_DATE))
+;

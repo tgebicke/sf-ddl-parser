@@ -1,0 +1,13 @@
+create or replace view VW_CRMP_OPERATIONALSYSTEMS(
+	SNAPSHOT_ID,
+	COMPONENT_ACRONYM,
+	SYSTEM_ID,
+	HVASTATUS
+) COMMENT='Shows only operational system with HVA status used for CRMP.'
+ as
+SELECT 
+(SELECT TOP 1 REPORT_ID FROM TABLE(FN_CRM_GET_REPORT_ID(0))) as SNAPSHOT_ID
+,s.Component_Acronym,s.SYSTEM_ID,s.HVAStatus
+FROM CORE.VW_SYSTEMS s
+where s.IS_OPERATIONALSYSTEM = 1
+;

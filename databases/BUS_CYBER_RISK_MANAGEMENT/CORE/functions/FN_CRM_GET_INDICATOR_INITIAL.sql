@@ -1,0 +1,7 @@
+CREATE OR REPLACE FUNCTION "FN_CRM_GET_INDICATOR_INITIAL"()
+RETURNS VARCHAR(16777216)
+LANGUAGE SQL
+COMMENT='Return string indicating initialization of a record'
+AS '
+''Initial''
+';

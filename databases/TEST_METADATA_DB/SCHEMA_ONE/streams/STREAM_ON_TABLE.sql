@@ -1,0 +1,1 @@
+create or replace stream STREAM_ON_TABLE on table PERMANENT_TABLE;

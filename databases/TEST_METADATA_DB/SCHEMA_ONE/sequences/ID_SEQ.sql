@@ -1,0 +1,1 @@
+create or replace sequence ID_SEQ start with 1000 increment by 5 noorder;

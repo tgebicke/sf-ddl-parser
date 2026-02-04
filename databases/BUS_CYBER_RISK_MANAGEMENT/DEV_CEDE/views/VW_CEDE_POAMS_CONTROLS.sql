@@ -1,0 +1,18 @@
+create or replace view VW_CEDE_POAMS_CONTROLS(
+	ALLOCATED_CONTROL,
+	CONTROL_ELEMENT_NUMBER,
+	AUTHORIZATION_PACKAGE,
+	POAM_ID,
+	REPORT_DATE
+) COMMENT='Contains POAM related allocated controls'
+ as
+SELECT c.ALLOCATED_CONTROL 
+    ,Alloc.control_element_number
+	,s.AUTHORIZATION_PACKAGE 
+	,c.POAM_ID 
+    ,r.REPORT_DATE 
+FROM CORE.CEDE_MVP_POAMS_Controls c
+join CORE.ALLOCATEDCONTROL Alloc on Alloc.control_number = c.allocated_control
+JOIN CORE.REPORT_IDS r on r.REPORT_ID = c.REPORT_ID
+JOIN CORE.VW_SYSTEMS s on s.SYSTEM_ID = c.SYSTEM_ID
+;

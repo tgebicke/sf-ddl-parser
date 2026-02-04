@@ -1,0 +1,299 @@
+CREATE OR REPLACE PROCEDURE "SP_CRM_UPDATE_VULCVE_MASTER"()
+RETURNS VARCHAR(16777216)
+LANGUAGE SQL
+COMMENT='Update VULMASTER with a) fixed/open/reopened mitigation status, b) plugin deleted reason '
+EXECUTE AS OWNER
+AS '
+declare
+Appl varchar := ''SP_CRM_UPDATE_VULCVE_MASTER'';
+ExceptionMsg varchar;
+Msg varchar;
+StartOfProgram datetime := current_timestamp();
+CRM_logic_exception exception (-20002, ''Raised CRM_logic_exception.'');
+No_Plugins_Msg varchar := ''No plugins'';
+DaysUntilVulConsideredDeleted number;
+RECORD_COUNT number;
+
+BEGIN
+CALL CORE.SP_CRM_START_PROCEDURE (:Appl);
+
+BEGIN TRANSACTION;
+
+UPDATE CORE.VULMASTER upd
+set DELETED_PLUGIN_COUNT = coalesce(t.PLUGIN_COUNT,0)
+,MAX_PLUGIN_DATEMODIFIED = t.MAX_DATEMODIFIED
+FROM CORE.VULMASTER vm
+LEFT OUTER JOIN (SELECT vp.DW_ASSET_ID,f.value::string as CVE,MAX(DATEMODIFIED) as MAX_DATEMODIFIED,COUNT(vp.PLUGIN_ID) as PLUGIN_COUNT 
+    FROM CORE.VULPLUGINS_MASTER vp
+    join table(flatten(cve,outer=>true)) as f
+    WHERE vp.DELETIONREASON IS NOT NULL
+    GROUP BY vp.DW_ASSET_ID,f.value::string) t on t.DW_ASSET_ID = vm.DW_ASSET_ID and t.CVE = vm.CVE
+WHERE upd.DW_VUL_ID = vm.DW_VUL_ID; -- 240120 and t.MAX_DATEMODIFIED >= upd.DATEMODIFIED;
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''Set VULMASTER.DELETED_PLUGIN_COUNT='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+
+COMMIT;
+
+BEGIN TRANSACTION;
+
+UPDATE CORE.VULMASTER upd
+set FIXED_PLUGIN_COUNT = coalesce(t.PLUGIN_COUNT,0)
+,MAX_PLUGIN_DATEMODIFIED = t.MAX_DATEMODIFIED
+FROM CORE.VULMASTER vm
+LEFT OUTER JOIN (SELECT vp.DW_ASSET_ID,f.value::string as CVE,MAX(DATEMODIFIED) as MAX_DATEMODIFIED,COUNT(vp.PLUGIN_ID) as PLUGIN_COUNT 
+    FROM CORE.VULPLUGINS_MASTER vp
+    join table(flatten(cve,outer=>true)) as f
+    WHERE vp.MITIGATIONSTATUS IS NOT NULL and UPPER(vp.MITIGATIONSTATUS) = ''FIXED'' and vp.DELETIONREASON IS NULL
+    GROUP BY vp.DW_ASSET_ID,f.value::string) t on t.DW_ASSET_ID = vm.DW_ASSET_ID and t.CVE = vm.CVE
+WHERE upd.DW_VUL_ID = vm.DW_VUL_ID; -- 240120 and t.MAX_DATEMODIFIED >= upd.DATEMODIFIED;
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''Set VULMASTER.FIXED_PLUGIN_COUNT='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+
+COMMIT;
+
+BEGIN TRANSACTION;
+
+UPDATE CORE.VULMASTER upd
+set OPEN_PLUGIN_COUNT = coalesce(t.PLUGIN_COUNT,0)
+,MAX_PLUGIN_DATEMODIFIED = t.MAX_DATEMODIFIED
+FROM CORE.VULMASTER vm
+LEFT OUTER JOIN (SELECT vp.DW_ASSET_ID,f.value::string as CVE,MAX(DATEMODIFIED) as MAX_DATEMODIFIED,COUNT(vp.PLUGIN_ID) as PLUGIN_COUNT 
+    FROM CORE.VULPLUGINS_MASTER vp
+    join table(flatten(cve,outer=>true)) as f
+    WHERE (vp.MITIGATIONSTATUS IS NULL or UPPER(vp.MITIGATIONSTATUS) NOT IN (''FIXED'',''REOPENED'')) -- 240419 CR 874 added REOPENED
+        and vp.DELETIONREASON IS NULL
+    GROUP BY vp.DW_ASSET_ID,f.value::string) t on t.DW_ASSET_ID = vm.DW_ASSET_ID and t.CVE = vm.CVE
+WHERE upd.DW_VUL_ID = vm.DW_VUL_ID; -- 240120 and t.MAX_DATEMODIFIED >= upd.DATEMODIFIED;
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''Set VULMASTER.OPEN_PLUGIN_COUNT='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+
+COMMIT;
+
+BEGIN TRANSACTION; -- 240419 CR 874
+
+UPDATE CORE.VULMASTER upd
+set REOPENED_PLUGIN_COUNT = coalesce(t.PLUGIN_COUNT,0)
+,MAX_PLUGIN_DATEMODIFIED = t.MAX_DATEMODIFIED
+FROM CORE.VULMASTER vm
+LEFT OUTER JOIN (SELECT vp.DW_ASSET_ID,f.value::string as CVE,MAX(DATEMODIFIED) as MAX_DATEMODIFIED,COUNT(vp.PLUGIN_ID) as PLUGIN_COUNT 
+    FROM CORE.VULPLUGINS_MASTER vp
+    join table(flatten(cve,outer=>true)) as f
+    WHERE vp.MITIGATIONSTATUS IS NOT NULL and UPPER(vp.MITIGATIONSTATUS) = ''REOPENED'' and vp.DELETIONREASON IS NULL
+    GROUP BY vp.DW_ASSET_ID,f.value::string) t on t.DW_ASSET_ID = vm.DW_ASSET_ID and t.CVE = vm.CVE
+WHERE upd.DW_VUL_ID = vm.DW_VUL_ID;
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''Set VULMASTER.REOPENED_PLUGIN_COUNT='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+
+COMMIT;
+
+BEGIN TRANSACTION;
+
+UPDATE CORE.VULMASTER upd
+set TOTAL_PLUGIN_COUNT = coalesce(t.PLUGIN_COUNT,0)
+,MAX_PLUGIN_DATEMODIFIED = t.MAX_DATEMODIFIED
+FROM CORE.VULMASTER vm
+LEFT OUTER JOIN (SELECT vp.DW_ASSET_ID,f.value::string as CVE,MAX(DATEMODIFIED) as MAX_DATEMODIFIED,COUNT(vp.PLUGIN_ID) as PLUGIN_COUNT 
+    FROM CORE.VULPLUGINS_MASTER vp
+    join table(flatten(cve,outer=>true)) as f
+    GROUP BY vp.DW_ASSET_ID,f.value::string) t on t.DW_ASSET_ID = vm.DW_ASSET_ID and t.CVE = vm.CVE
+WHERE upd.DW_VUL_ID = vm.DW_VUL_ID; -- 240120 and t.MAX_DATEMODIFIED >= upd.DATEMODIFIED;
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''Set VULMASTER.TOTAL_PLUGIN_COUNT='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+
+COMMIT;
+
+--
+--
+-- Based on plugin counts obtained above, determine the individual CVE mitigation status
+--
+--
+
+BEGIN TRANSACTION;
+--
+-- Old VULMASTER record before VULPLUGINS_MASTER was created therefore no related plugins
+--
+UPDATE CORE.VULMASTER
+set EXTENDED_MITIGATIONSTATUS = :No_Plugins_Msg || '', already fixed''
+WHERE TOTAL_PLUGIN_COUNT = 0 and MITIGATIONSTATUS = ''fixed'';
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''VULMASTER records just marked as No Plugins/Already fixed='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+
+COMMIT;
+
+BEGIN TRANSACTION;
+--
+-- Old VULMASTER record before VULPLUGINS_MASTER was created therefore no related plugins
+--
+UPDATE CORE.VULMASTER
+set EXTENDED_MITIGATIONSTATUS = :No_Plugins_Msg || '', already deleted''
+WHERE TOTAL_PLUGIN_COUNT = 0 and DELETIONREASON IS NOT NULL;
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''VULMASTER records just marked as No Plugins/Already deleted='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+
+COMMIT;
+
+BEGIN TRANSACTION; -- 240120
+--
+-- Logically delete vulnerabilities that have not been marked as fixed in (DaysUntilVulConsideredDeleted) days
+--
+DaysUntilVulConsideredDeleted := (select PARMINT FROM CORE.CONFIG where PARMNAME = ''DaysUntilVulConsideredDeleted'');
+
+If (DaysUntilVulConsideredDeleted IS NULL) THEN
+	BEGIN
+	Msg := ''WARNING: Config parameter (DaysUntilVulConsideredDeleted) not available'';
+	CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+	END;
+Else
+    BEGIN
+    --
+    -- Age vulnerabilities that are not already fixed
+    -- This is only for old VULMASTER records that have no associated VULPLUGINS_MASTER record (TOTAL_PLUGIN_COUNT = 0)
+    --
+    UPDATE CORE.VULMASTER
+    set dateDeleted = CURRENT_TIMESTAMP()
+    ,DeletionReason = ''No plugins and more than '' || :DaysUntilVulConsideredDeleted::varchar || '' days since lastFound''
+    ,IS_PREV_DELETED = TRUE
+    ,DATEMODIFIED = CURRENT_TIMESTAMP()
+    WHERE TOTAL_PLUGIN_COUNT = 0 and DeletionReason IS NULL and MitigationStatus <> ''fixed''
+    and DATEDIFF(d,lastfound,CURRENT_TIMESTAMP()) > :DaysUntilVulConsideredDeleted;
+
+    RECORD_COUNT := SQLROWCOUNT;
+    Msg := ''VULMASTER(No plugins) records logically deleted(>'' || :DaysUntilVulConsideredDeleted::varchar || '' days)='' || RECORD_COUNT::varchar;
+    CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+    END;
+End if;
+
+COMMIT;
+
+BEGIN TRANSACTION;
+--
+-- Old VULMASTER record before VULPLUGINS_MASTER was created therefore no related plugins
+--
+UPDATE CORE.VULMASTER
+set EXTENDED_MITIGATIONSTATUS = :No_Plugins_Msg || '', '' || coalesce(NULLIF(MITIGATIONSTATUS,''''),''Unknown'')
+WHERE TOTAL_PLUGIN_COUNT = 0 and (EXTENDED_MITIGATIONSTATUS IS NULL or substring(EXTENDED_MITIGATIONSTATUS,1,10) <> :No_Plugins_Msg);
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''VULMASTER records just marked as No Plugins/Various='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+
+COMMIT;
+
+BEGIN TRANSACTION;
+--
+-- Pure mitigation
+--
+UPDATE CORE.VULMASTER
+set EXTENDED_MITIGATIONSTATUS = ''fixed''
+,DATEMITIGATED = CURRENT_TIMESTAMP()
+,DATEMODIFIED = CURRENT_TIMESTAMP()
+,DELETIONREASON = NULL
+,MITIGATIONSTATUS = ''fixed''
+WHERE TOTAL_PLUGIN_COUNT > 0 and OPEN_PLUGIN_COUNT = 0 and REOPENED_PLUGIN_COUNT = 0 -- 240419 CR 874 added REOPENED
+    and DELETED_PLUGIN_COUNT = 0 and FIXED_PLUGIN_COUNT = TOTAL_PLUGIN_COUNT and MITIGATIONSTATUS <> ''fixed''; -- 240120
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''VULMASTER records just marked as fixed(pure)='' || :RECORD_COUNT; -- 240419 CR 874
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+
+COMMIT;
+
+BEGIN TRANSACTION; -- 240122
+--
+-- Mitigated (fixed) but split between fixed and deleted
+--
+UPDATE CORE.VULMASTER
+set EXTENDED_MITIGATIONSTATUS = ''fixed but split, '' || DELETED_PLUGIN_COUNT || '' deleted and '' || FIXED_PLUGIN_COUNT || '' fixed''
+,DATEMITIGATED = CURRENT_TIMESTAMP()
+,DATEMODIFIED = CURRENT_TIMESTAMP()
+,DELETIONREASON = NULL
+,MITIGATIONSTATUS = ''fixed''
+WHERE TOTAL_PLUGIN_COUNT > 0 and OPEN_PLUGIN_COUNT = 0 and REOPENED_PLUGIN_COUNT = 0 -- 240419 CR 874 added REOPENED
+    and FIXED_PLUGIN_COUNT > 0 and (DELETED_PLUGIN_COUNT + FIXED_PLUGIN_COUNT) = TOTAL_PLUGIN_COUNT and MITIGATIONSTATUS <> ''fixed'';
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''VULMASTER records just marked as fixed(split)='' || :RECORD_COUNT; -- 240419 CR 874
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+
+COMMIT;
+
+BEGIN TRANSACTION;
+--
+-- All plugins deleted
+--
+UPDATE CORE.VULMASTER
+set EXTENDED_MITIGATIONSTATUS = ''All related plugins deleted''
+,DATEDELETED = CURRENT_TIMESTAMP()
+,DATEMODIFIED = CURRENT_TIMESTAMP()
+,DELETIONREASON = ''All related plugins deleted''
+WHERE TOTAL_PLUGIN_COUNT > 0 and OPEN_PLUGIN_COUNT = 0 and REOPENED_PLUGIN_COUNT = 0 -- 240419 CR 874 added REOPENED
+    and FIXED_PLUGIN_COUNT = 0 and DELETED_PLUGIN_COUNT = TOTAL_PLUGIN_COUNT; -- and DELETIONREASON IS NULL;
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''VULMASTER records just marked as deleted='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+
+COMMIT;
+
+BEGIN TRANSACTION;
+
+UPDATE CORE.VULMASTER
+set EXTENDED_MITIGATIONSTATUS = ''Partially mitigated, '' || OPEN_PLUGIN_COUNT || '' open plugins out of '' || TOTAL_PLUGIN_COUNT
+,DATEMITIGATED = NULL
+,DATEMODIFIED = CURRENT_TIMESTAMP()
+,DELETIONREASON = NULL
+,MITIGATIONSTATUS = ''open''
+WHERE TOTAL_PLUGIN_COUNT > 0 and OPEN_PLUGIN_COUNT > 0 and REOPENED_PLUGIN_COUNT = 0; -- 240419 CR 874 added REOPENED
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''VULMASTER records just marked as partially mitigated(open)='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+
+COMMIT;
+
+BEGIN TRANSACTION; -- 240419 CR 874 added REOPENED
+
+UPDATE CORE.VULMASTER
+set EXTENDED_MITIGATIONSTATUS = ''Partially mitigated, '' || REOPENED_PLUGIN_COUNT || '' reopened plugins, ''
+    || OPEN_PLUGIN_COUNT || '' open plugins out of '' || TOTAL_PLUGIN_COUNT
+,DATEMITIGATED = NULL
+,DATEMODIFIED = CURRENT_TIMESTAMP()
+,DELETIONREASON = NULL
+,MITIGATIONSTATUS = ''reopened''
+WHERE TOTAL_PLUGIN_COUNT > 0 and REOPENED_PLUGIN_COUNT > 0; -- It doesnt matter if OPEN_PLUGIN_COUNT is zero
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''VULMASTER records just marked as partially mitigated(reopened)='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+
+COMMIT;
+
+CALL CORE.SP_CRM_END_PROCEDURE (:Appl);
+return ''Success'';
+
+EXCEPTION
+  when statement_error then
+    insert into CORE.ALERTLOG (APPL,CUSTOM_ERRMSG,ERRTYPE,SQLCODE,SQLERRM,SQLSTATE) VALUES(:APPL,:ExceptionMsg,''Statement_Error'',:SQLCODE,:SQLERRM,:SQLSTATE);
+    raise;
+  when CRM_logic_exception then
+    insert into CORE.ALERTLOG (APPL,CUSTOM_ERRMSG,ERRTYPE,SQLCODE,SQLERRM,SQLSTATE) VALUES(:APPL,:ExceptionMsg,''CRM_logic_exception'',:SQLCODE,:SQLERRM,:SQLSTATE);
+    raise;
+  when other then
+    insert into CORE.ALERTLOG (APPL,CUSTOM_ERRMSG,ERRTYPE,SQLCODE,SQLERRM,SQLSTATE) VALUES(:APPL,:ExceptionMsg,''Other error'',:SQLCODE,:SQLERRM,:SQLSTATE);
+    raise;
+END;
+';

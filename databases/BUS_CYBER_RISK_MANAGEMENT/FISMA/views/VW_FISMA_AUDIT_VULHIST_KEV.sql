@@ -1,0 +1,76 @@
+create or replace view VW_FISMA_AUDIT_VULHIST_KEV(
+	ASSET_ID_TATTOO,
+	BODDUEDATE,
+	COMPONENT_ACRONYM,
+	CVE,
+	CVSSV2BASESCORE,
+	CVSSV3BASESCORE,
+	DATACENTER_ID,
+	DATACENTERACRONYM,
+	DAYSSINCEDISCOVERY,
+	DNSNAME,
+	DW_ASSET_ID,
+	DW_VUL_ID,
+	EXPLOITAVAILABLE,
+	FIRSTSEEN,
+	FISMASEVERITY,
+	GROUP_ACRONYM,
+	IP,
+	IS_BOD,
+	LASTFOUND,
+	MACADDRESS,
+	MITIGATIONSTATUS,
+	NETBIOSNAME,
+	OS,
+	REPORT_DATE,
+	REPORT_ID,
+	SOURCE_TOOL,
+	SYSTEM_ID,
+	SYSTEMACRONYM
+) COMMENT='FISMA Audit - Vulnerability History - KEV'
+ as
+SELECT 
+ah.ASSET_ID_TATTOO
+,TO_CHAR(kev.BODDUEDATE,'mm/dd/yyyy') as BODDUEDATE
+,s.COMPONENT_ACRONYM
+,vm.CVE
+,v.CVSSV2BASESCORE
+,v.CVSSV3BASESCORE
+,ah.DATACENTER_ID
+,dc.Acronym as DATACENTERACRONYM
+,DATEDIFF(day,vm.firstseen,v.lastFound) as DAYSSINCEDISCOVERY
+,ah.FQDN as DNSNAME
+,ah.DW_ASSET_ID
+,vm.DW_VUL_ID
+,v.EXPLOITAVAILABLE
+,TO_CHAR(vm.FIRSTSEEN,'mm/dd/yyyy') as FIRSTSEEN
+,v.FISMASEVERITY
+,s.GROUP_ACRONYM
+,ah.IPv4 as IP
+,case coalesce(kev.ID,0)
+    WHEN 0 THEN 0
+    ELSE 1
+end::boolean as IS_BOD
+,TO_CHAR(v.LASTFOUND,'mm/dd/yyyy') as LASTFOUND
+,ah.MACADDRESS
+,v.MITIGATIONSTATUS
+,ah.NETBIOSNAME
+,ah.OS
+,TO_CHAR(r.REPORT_DATE,'mm/dd/yyyy') as REPORT_DATE
+,r.REPORT_ID
+,'Tenable' as SOURCE_TOOL
+,ah.SYSTEM_ID
+,s.Acronym as SYSTEMACRONYM
+FROM CORE.REPORT_IDS r
+JOIN CORE.VULHIST v on v.REPORT_ID = r.REPORT_ID
+JOIN CORE.VulMaster vm on vm.DW_VUL_ID = v.DW_VUL_ID
+JOIN CORE.KEV_CATALOG kev on kev.CVE = vm.CVE -- Do not check IS_DELETED = 0. We want to know if it was a BOD at that point in time
+JOIN CORE.VW_ASSETHIST ah on ah.REPORT_ID = r.REPORT_ID and ah.DW_ASSET_ID = vm.DW_ASSET_ID
+JOIN CORE.VW_SYSTEMS dc on dc.SYSTEM_ID = ah.DATACENTER_ID
+JOIN CORE.VW_SYSTEMS s on s.SYSTEM_ID = ah.SYSTEM_ID
+LEFT OUTER JOIN CORE.VULPLUGINS_COALESCED plugs on plugs.DW_VUL_ID = v.DW_VUL_ID
+where r.is_endofmonth = 1 
+and year(r.report_date::date) = 2024 
+and month(r.report_date::date) in (2,3,4)
+and v.MitigationStatus IN ('open','reopened')
+and kev.insert_date::date <= r.report_date::date;

@@ -1,0 +1,20 @@
+{
+  "account": "your-account-identifier",
+  "user": "YOUR_USERNAME",
+  "warehouse": "COMPUTE_WH",
+  "database": "YOUR_DATABASE",
+  "role": "YOUR_ROLE",
+  "auth_method": "password",
+  "auth_method_options": ["password", "external", "okta", "keypair"],
+  "password": "your_password",
+  "okta_url": null,
+  "sql_file": "full_db/fulldb.sql",
+  "output_dir": "databases",
+  "backup_dir": "backups",
+  "database_name_override": null,
+  "include_schemas": [],
+  "exclude_schemas": [
+    "INFORMATION_SCHEMA",
+    "PUBLIC"
+  ]
+}

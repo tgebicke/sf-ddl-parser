@@ -1,0 +1,36 @@
+CREATE OR REPLACE PROCEDURE "SP_CRM_ASSET_SOFTWARE"()
+RETURNS VARCHAR(16777216)
+LANGUAGE SQL
+COMMENT='Populate CORE.ASSET_SOFTWARE table'
+EXECUTE AS OWNER
+AS '
+DECLARE
+Appl varchar := ''SP_CRM_ASSET_SOFTWARE'';
+ExceptionMsg varchar := ''Default'';
+Msg varchar;
+StartOfProcedure datetime := current_timestamp();
+CRM_logic_exception exception (-20002, ''Raised CRM_logic_exception.'');
+SNAPSHOT_ID number;
+RECORD_COUNT NUMBER;
+
+BEGIN
+CALL CORE.SP_CRM_START_PROCEDURE (:Appl);
+
+CALL SP_CRM_PULL_TENABLE_SOFTWARE_V2(CORE.FN_CRM_GET_SNAPSHOT_ID(''CCIC VUL''));
+CALL SP_CRM_PULL_TENABLE_SOFTWARE_V2(CORE.FN_CRM_GET_SNAPSHOT_ID(''AWS VUL''));
+
+CALL CORE.SP_CRM_END_PROCEDURE (:Appl);
+return ''Success'';
+
+EXCEPTION
+  when statement_error then
+    insert into CORE.ALERTLOG (APPL,CUSTOM_ERRMSG,ERRTYPE,SQLCODE,SQLERRM,SQLSTATE) VALUES(:APPL,:ExceptionMsg,''Statement_Error'',:SQLCODE,:SQLERRM,:SQLSTATE);
+    raise;
+  when CRM_logic_exception then
+    insert into CORE.ALERTLOG (APPL,CUSTOM_ERRMSG,ERRTYPE,SQLCODE,SQLERRM,SQLSTATE) VALUES(:APPL,:ExceptionMsg,''CRM_logic_exception'',:SQLCODE,:SQLERRM,:SQLSTATE);
+    raise;
+  when other then
+    insert into CORE.ALERTLOG (APPL,CUSTOM_ERRMSG,ERRTYPE,SQLCODE,SQLERRM,SQLSTATE) VALUES(:APPL,:ExceptionMsg,''Other error'',:SQLCODE,:SQLERRM,:SQLSTATE);
+    raise;
+END
+';

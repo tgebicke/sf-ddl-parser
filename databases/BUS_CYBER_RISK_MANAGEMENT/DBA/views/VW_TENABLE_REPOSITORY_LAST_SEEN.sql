@@ -1,0 +1,27 @@
+create or replace view VW_TENABLE_REPOSITORY_LAST_SEEN(
+	DATACENTER_ACRONYM,
+	DATACENTER_ID,
+	REPOSITORY_ID,
+	REPOSITORY_NAME,
+	MIN_INSERT_DATE,
+	MAX_INSERT_DATE,
+	MAX_LAST_SEEN
+) COMMENT='View to list all Tenable Repositories and the date last seen\t'
+ as
+--
+-- 231124
+-- LSDR Vulnerabilities (TERATDV) (Lastseen 7/9/23) and Performant Vulnerability Database (Lastseend 6/24/23)
+--
+SELECT 
+dc.ACRONYM as DATACENTER_ACRONYM
+,rh.DATACENTER_ID
+,rh.REPOSITORY_ID
+,rh.REPOSITORY_NAME
+,MIN(rh.INSERT_DATE)::date as Min_INSERT_DATE
+,MAX(rh.INSERT_DATE)::date as Max_INSERT_DATE
+,substring(MAX(rh.LAST_SEEN)::varchar,1,16) as Max_LAST_SEEN 
+FROM CORE.TENABLE_REPOSITORYHIST rh
+left outer join CORE.SYSTEMS dc on dc.SYSTEM_ID = rh.DATACENTER_ID
+where rh.repository_id IS NOT NULL -- 231124
+GROUP BY dc.ACRONYM,rh.DATACENTER_ID,rh.REPOSITORY_ID,rh.REPOSITORY_NAME
+ORDER BY dc.ACRONYM,rh.REPOSITORY_NAME;

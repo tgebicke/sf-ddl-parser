@@ -1,0 +1,23 @@
+CREATE OR REPLACE FUNCTION "FN_CRM_PARSE_FORESCOUT_DATACENTER_ID"("P_FORESCOUT_ASSIGNED_LABELS" VARCHAR(16777216))
+RETURNS VARCHAR(16777216)
+LANGUAGE SQL
+COMMENT='Parse AXONIUS FORESCOUT_ASSIGNED_LABELS to yield FORESCOUT_DATACENTER_ID'
+AS '
+-- Found some records where DC terminates in semicolon instead of comma. Added replace of (;  Windows)
+TRIM(
+REPLACE(
+REPLACE(
+REPLACE(
+REPLACE(
+REPLACE(
+REPLACE(
+
+(CASE 
+    WHEN ( CHARINDEX(''DC-'',P_FORESCOUT_ASSIGNED_LABELS,1) > 0 ) THEN
+        substring(split_part(SUBSTRING(P_FORESCOUT_ASSIGNED_LABELS, CHARINDEX(''DC-'',P_FORESCOUT_ASSIGNED_LABELS,1), 500),'','',1),1,39)
+    ELSE NULL 
+END)
+
+,'';  Windows'',''''),'';  Endpoint'',''''),''DC-'',''''),''"'',''''),''['',''''),'']'',''''))
+
+';

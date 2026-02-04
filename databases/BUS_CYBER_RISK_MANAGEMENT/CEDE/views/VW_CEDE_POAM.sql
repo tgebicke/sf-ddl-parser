@@ -1,0 +1,17 @@
+create or replace view VW_CEDE_POAM(
+	REPORTDATE,
+	AUTHORIZATION_PACKAGE,
+	POAM_ID,
+	OVERALL_STATUS,
+	WEAKNESS_RISK_LEVEL
+) COMMENT='Contains POAM Id/over all status/Weakness level'
+ as
+select 
+r.REPORT_DATE as ReportDate
+,p.AUTHORIZATION_PACKAGE 
+,substring(p.POAM_ID,7)::number as POAM_ID
+,p.OVERALL_STATUS 
+,p.WEAKNESS_RISK_LEVEL 
+FROM TABLE(CORE.FN_CRM_GET_REPORT_ID(0)) as r
+JOIN CORE.VW_POAMHist p on p.REPORT_ID = r.REPORT_ID
+;

@@ -1,0 +1,7 @@
+CREATE OR REPLACE FUNCTION "FN_CRM_GET_MITIGATIONSTATUS_FIXED"()
+RETURNS VARCHAR(16777216)
+LANGUAGE SQL
+COMMENT='Return string indicating mitigation status is fixed'
+AS '
+''fixed''
+';

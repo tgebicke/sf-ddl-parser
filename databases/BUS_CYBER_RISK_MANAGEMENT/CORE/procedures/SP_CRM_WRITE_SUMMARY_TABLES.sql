@@ -1,0 +1,1067 @@
+CREATE OR REPLACE PROCEDURE "SP_CRM_WRITE_SUMMARY_TABLES"("P_REPORT_ID" NUMBER(38,0))
+RETURNS VARCHAR(16777216)
+LANGUAGE SQL
+COMMENT='Write summarized Datacenter and System data'
+EXECUTE AS OWNER
+AS '
+
+DECLARE
+Appl varchar := ''SP_CRM_WRITE_SUMMARY_TABLES'';
+ExceptionMsg varchar := ''Default'';
+Msg varchar;
+StartOfProcedure datetime := current_timestamp();
+CRM_logic_exception exception (-20002, ''Raised CRM_logic_exception.'');
+REPORT_ID number;
+RECORD_COUNT number;
+BEGIN
+CALL CORE.SP_CRM_START_PROCEDURE (:Appl);
+
+-----------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------
+-- UPDATE SYSTEMSUMMARY
+-----------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------
+
+--
+-- Write all systems to SYSTEMSUMMARY table.
+-- This will ultimately show that nothing was reported for a given system
+-- and reporting of assets that are retired, etc.
+--
+INSERT INTO CORE.SYSTEMSUMMARY
+    (ASSETRISKTOLERANCE
+	,ASSETS
+	,HWAMRAWAWS
+	,HWAMRAWBIGFIX
+	,HWAMRAWFORESCOUT
+	,KEV_FIXED_MONTHTODATE
+	,KEV_FIXED_TODAY
+	,KEV_OPEN
+	,KEV_REOPENED
+	,PREVASSETS
+	,REPORT_ID
+	,RESIDUALRISK
+	,RESILIENCYSCORE
+	,SYSTEM_ID
+	,VUL_CRITICAL_FIXED_TODAY -- 231222
+	,VUL_CRITICAL_OPEN -- 231222
+	,VUL_CRITICAL_REOPENED -- 231222
+	,VUL_DELETED_TODAY -- 231222
+	,VUL_HIGH_FIXED_TODAY -- 231222
+	,VUL_HIGH_OPEN -- 231222
+	,VUL_HIGH_REOPENED -- 231222
+	,VUL_INACTIVE_ASSET_TODAY -- 231222
+	,VUL_LOW_FIXED_TODAY -- 231222
+	,VUL_LOW_OPEN -- 231222
+	,VUL_LOW_REOPENED -- 231222
+	,VUL_MEDIUM_FIXED_TODAY -- 231222
+	,VUL_MEDIUM_OPEN -- 231222
+	,VUL_MEDIUM_REOPENED -- 231222;
+	,VULCRITICAL
+	,VULCRITICAL_GT15_LTE60DAYS
+	,VULCRITICAL_GT30_LTE60DAYS
+	,VULCRITICAL_GT60DAYS
+	,VULCRITICAL_GTE15DAYS
+	,VULCRITICAL_LTE15DAYS
+	,VULCRITICAL_LTE30DAYS
+	,VULCRITICALREMEDIATED
+	,VULDELETED
+	,VULHIGH
+	,VULHIGH_GT30_LTE60DAYS
+	,VULHIGH_GT60DAYS
+	,VULHIGH_LTE30DAYS
+	,VULHIGHREMEDIATED
+	,VULLOW
+	,VULMEDIUM
+	,VULNRISKTOLERANCE
+	,VULRAW
+	,VULRAW_CRITICAL
+	,VULRAW_HIGH
+	,VULRAW_LOW
+	,VULRAW_MEDIUM
+	,VULUNIQUECRITICAL_GT15_LTE60DAYS
+	,VULUNIQUECRITICAL_GT30_LTE60DAYS
+	,VULUNIQUECRITICAL_GT60DAYS
+	,VULUNIQUECRITICAL_GTE15DAYS
+	,VULUNIQUEHIGH_GT30_LTE60DAYS
+	,VULUNIQUEHIGH_GT60DAYS
+	,VULUNIQUELOW
+	,VULUNIQUEMEDIUM
+)
+select 
+   NULL as ASSETRISKTOLERANCE -- Deliberately set to NULL so when PrevAssets = 0 we dont get divide by zero (below)
+	,0 as ASSETS
+	,0 as HWAMRAWAWS
+	,0 as HWAMRAWBIGFIX
+	,0 as HWAMRAWFORESCOUT
+	,0 as KEV_FIXED_MONTHTODATE
+	,0 as KEV_FIXED_TODAY
+	,0 as KEV_OPEN
+	,0 as KEV_REOPENED
+	,0 as PREVASSETS
+    ,:P_Report_ID
+	,0 as RESIDUALRISK
+	,0 as RESILIENCYSCORE
+    ,SYSTEM_ID
+	,0 as VUL_CRITICAL_FIXED_TODAY -- 231222
+	,0 as VUL_CRITICAL_OPEN -- 231222
+	,0 as VUL_CRITICAL_REOPENED -- 231222
+	,0 as VUL_DELETED_TODAY -- 231222
+	,0 as VUL_HIGH_FIXED_TODAY -- 231222
+	,0 as VUL_HIGH_OPEN -- 231222
+	,0 as VUL_HIGH_REOPENED -- 231222
+	,0 as VUL_INACTIVE_ASSET_TODAY -- 231222
+	,0 as VUL_LOW_FIXED_TODAY -- 231222
+	,0 as VUL_LOW_OPEN -- 231222
+	,0 as VUL_LOW_REOPENED -- 231222
+	,0 as VUL_MEDIUM_FIXED_TODAY -- 231222
+	,0 as VUL_MEDIUM_OPEN -- 231222
+	,0 as VUL_MEDIUM_REOPENED -- 231222;
+	,0 as VULCRITICAL
+	,0 as VULCRITICAL_GT15_LTE60DAYS
+	,0 as VULCRITICAL_GT30_LTE60DAYS
+	,0 as VULCRITICAL_GT60DAYS
+	,0 as VULCRITICAL_GTE15DAYS
+	,0 as VULCRITICAL_LTE15DAYS
+	,0 as VULCRITICAL_LTE30DAYS
+	,0 as VULCRITICALREMEDIATED
+	,0 as VULDELETED
+	,0 as VULHIGH
+	,0 as VULHIGH_GT30_LTE60DAYS
+	,0 as VULHIGH_GT60DAYS
+	,0 as VULHIGH_LTE30DAYS
+	,0 as VULHIGHREMEDIATED
+	,0 as VULLOW
+	,0 as VULMEDIUM
+	,0 as VULNRISKTOLERANCE
+	,0 as VULRAW
+	,0 as VULRAW_CRITICAL
+	,0 as VULRAW_HIGH
+	,0 as VULRAW_LOW
+	,0 as VULRAW_MEDIUM
+	,0 as VULUNIQUECRITICAL_GT15_LTE60DAYS
+	,0 as VULUNIQUECRITICAL_GT30_LTE60DAYS
+	,0 as VULUNIQUECRITICAL_GT60DAYS
+	,0 as VULUNIQUECRITICAL_GTE15DAYS
+	,0 as VULUNIQUEHIGH_GT30_LTE60DAYS
+	,0 as VULUNIQUEHIGH_GT60DAYS
+	,0 as VULUNIQUELOW
+	,0 as VULUNIQUEMEDIUM
+FROM CORE.VW_SYSTEMS;
+
+-- 230918 RECORD_COUNT := SQLROWCOUNT;
+-- 230918 Msg :=  ''SYSTEMSUMMARY created='' || cast(RECORD_COUNT as varchar);
+-- 230918 CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); 
+
+--
+-- Updates to SYSTEMSUMMARY below will only be for valid systems
+--
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set Assets = t.Total
+FROM (select SYSTEM_ID,COUNT(1) Total 
+    FROM CORE.VW_ASSETS
+    GROUP BY SYSTEM_ID) t 
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VulDeleted = t.Total
+FROM (SELECT a.SYSTEM_ID,count(1) Total
+    FROM CORE.VULMASTER vm
+    JOIN CORE.VW_ASSETS a on a.DW_ASSET_ID = vm.DW_ASSET_ID
+    WHERE vm.DELETIONREASON IS NULL and vm.datedeleted::date = CURRENT_DATE
+    GROUP BY a.SYSTEM_ID) t 
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+
+DROP TABLE IF EXISTS TEMP_SYSTEM_VUL_TOTALS;
+
+CREATE TEMPORARY TABLE TEMP_SYSTEM_VUL_TOTALS (CVE VARCHAR, DaysSinceDiscovery NUMBER, FISMASEVERITY VARCHAR , MITIGATIONSTATUS VARCHAR, SYSTEM_ID VARCHAR);
+
+--
+-- Only vulnerabilities that are:
+-- a) Not logically deleted 
+-- b) Assets related to vulnerability are active (not logically deleted)
+-- c) Vulnerbility is not fixed (open/reopen)
+--
+INSERT INTO TEMP_SYSTEM_VUL_TOTALS (CVE, DaysSinceDiscovery, FISMASEVERITY, MITIGATIONSTATUS, SYSTEM_ID)
+select CVE, DaysSinceDiscovery, FISMASeverity, MitigationStatus,SYSTEM_ID
+	FROM CORE.VW_VULMASTER WHERE MitigationStatus <> ''fixed'';
+
+----------------------------
+-- Critical Vulnerabilities
+----------------------------
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VulCritical = t.Total
+FROM (select SYSTEM_ID,count(1) Total FROM TEMP_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Critical'' GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VulCritical_lte15days = t.Total
+FROM (select SYSTEM_ID,count(1) Total FROM TEMP_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery <= 15 GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VulUniqueCritical_gt15_lte60days = t.Total
+FROM (select SYSTEM_ID,count(1) Total 
+    FROM (SELECT CVE,SYSTEM_ID FROM TEMP_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery > 15 and DaysSinceDiscovery <= 60 GROUP BY CVE,SYSTEM_ID)
+	GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VulCritical_gt15_lte60days = t.Total
+FROM (select SYSTEM_ID,count(1) Total FROM TEMP_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery > 15 and DaysSinceDiscovery <= 60 GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VulCritical_lte30days = t.Total
+FROM (select SYSTEM_ID,count(1) Total FROM TEMP_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery <= 30 GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VulUniqueCritical_gt30_lte60days = t.Total
+FROM (select SYSTEM_ID,count(1) Total 
+    FROM (SELECT CVE,SYSTEM_ID FROM TEMP_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery > 30 and DaysSinceDiscovery <= 60 GROUP BY CVE,SYSTEM_ID)
+	GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VulCritical_gt30_lte60days = t.Total
+FROM (select SYSTEM_ID,count(1) Total FROM TEMP_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery > 30 and DaysSinceDiscovery <= 60 GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VulUniqueCritical_gt60days = t.Total
+FROM (select SYSTEM_ID,count(1) Total 
+    FROM (SELECT CVE,SYSTEM_ID FROM TEMP_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery > 60 GROUP BY CVE,SYSTEM_ID)
+	GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VulCritical_gt60days = t.Total
+FROM (select SYSTEM_ID,count(1) Total FROM TEMP_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery > 60 GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+--Msg :=  ''Finished SYSTEMSUMMARY(Critical)'';
+--CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); 
+
+----------------------------
+-- High Vulnerabilities
+----------------------------
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VulHigh = t.Total
+FROM (select SYSTEM_ID,count(1) Total FROM TEMP_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''High'' GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VulHigh_lte30days = t.Total
+FROM (select SYSTEM_ID,count(1) Total FROM TEMP_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''High'' and DaysSinceDiscovery <= 30 GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VulUniqueHigh_gt30_lte60days = t.Total
+FROM (select SYSTEM_ID,count(1) Total 
+    FROM (SELECT CVE,SYSTEM_ID FROM TEMP_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''High'' and DaysSinceDiscovery > 30 and DaysSinceDiscovery <= 60 GROUP BY CVE,SYSTEM_ID)
+	GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VulHigh_gt30_lte60days = t.Total
+FROM (select SYSTEM_ID,count(1) Total FROM TEMP_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''High'' and DaysSinceDiscovery > 30 and DaysSinceDiscovery <= 60 GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VulUniqueHigh_gt60days = t.Total
+FROM (select SYSTEM_ID,count(1) Total 
+    FROM (SELECT CVE,SYSTEM_ID FROM TEMP_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''High'' and DaysSinceDiscovery > 60 GROUP BY CVE,SYSTEM_ID)
+	GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VulHigh_gt60days = t.Total
+FROM (select SYSTEM_ID,count(1) Total FROM TEMP_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''High'' and DaysSinceDiscovery > 60 GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+--Msg :=  ''Finished SYSTEMSUMMARY(High)'';
+--CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); 
+
+----------------------------
+-- Medium Vulnerabilities
+----------------------------
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VulMedium = t.Total
+FROM (select SYSTEM_ID,count(1) Total FROM TEMP_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Medium'' GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VulUniqueMedium = t.Total
+FROM (select SYSTEM_ID,count(1) Total 
+    FROM (SELECT CVE,SYSTEM_ID FROM TEMP_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Medium'' GROUP BY CVE,SYSTEM_ID)
+	GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+--Msg :=  ''Finished SYSTEMSUMMARY(Medium)'';
+--CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); 
+
+----------------------------
+-- Low Vulnerabilities
+----------------------------
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VulLow = t.Total
+FROM (select SYSTEM_ID,count(1) Total FROM TEMP_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Low'' GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VulUniqueLow = t.Total
+FROM (select SYSTEM_ID,count(1) Total 
+    FROM (SELECT CVE,SYSTEM_ID FROM TEMP_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Low'' GROUP BY CVE,SYSTEM_ID)
+	GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+--Msg :=  ''Finished SYSTEMSUMMARY(Low)'';
+--CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); 
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set PrevAssets = t.PrevAssets
+FROM (select SYSTEM_ID,ASSETS as PrevAssets
+    FROM (SELECT MAX(REPORT_ID) as MAX_REPORT_ID FROM CORE.REPORT_IDS where Is_endOfMonth=1) r
+    JOIN CORE.SYSTEMSUMMARY s on s.REPORT_ID = r.MAX_REPORT_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY
+set AssetRiskTolerance = cast(((PrevAssets - Assets)*100.00/PrevAssets) as decimal(15,2))
+WHERE REPORT_ID = :P_Report_ID and PrevAssets > 0; -- Result is AssetRiskTolerance is NULL by default
+
+UPDATE CORE.SYSTEMSUMMARY
+set AssetRiskTolerance = 0
+WHERE REPORT_ID = :P_Report_ID AND AssetRiskTolerance is null;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set ResidualRisk = s.TotalPOAMwithApprovedRBD
+FROM CORE.Systems s
+WHERE s.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set ResiliencyScore = t.Total
+FROM (SELECT p.SYSTEM_ID
+	,SUM(WEAKNESS_RISK_LEVEL_WEIGHT) Total
+	FROM CORE.VW_POAMHIST p 
+	WHERE p.Overall_Status in (''Delayed'', ''Ongoing'', ''Draft'')
+	and p.REPORT_ID = :P_Report_ID
+	GROUP BY p.SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set SUM_ASSET_VULNRISKTOLERANCE = t.SUM_ASSET_VULNRISKTOLERANCE
+,VULNRISKTOLERANCE = t.SUM_ASSET_VULNRISKTOLERANCE -- VULNRISKTOLERANCE is further calculated if SCANNABLEASSETS > 0
+,SCANNABLEASSETS = t.SCANNABLEASSETS
+FROM (SELECT SYSTEM_ID,SUM(VULNRISKTOLERANCE) as SUM_ASSET_VULNRISKTOLERANCE, count(1) SCANNABLEASSETS
+    FROM CORE.VW_ASSETS
+    WHERE Is_Scannable=1 
+    group by SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VULNRISKTOLERANCE = ss.SUM_ASSET_VULNRISKTOLERANCE / ss.SCANNABLEASSETS
+WHERE ss.REPORT_ID = :P_Report_ID and ss.SCANNABLEASSETS > 0;
+
+
+--
+-- KEV Totals
+--
+
+DROP TABLE IF EXISTS TEMP_KEV_TOTALS;
+
+CREATE TEMPORARY TABLE TEMP_KEV_TOTALS (SYSTEM_ID VARCHAR, MITIGATIONSTATUS VARCHAR, TOTAL NUMBER);
+
+INSERT INTO TEMP_KEV_TOTALS (SYSTEM_ID, MITIGATIONSTATUS, TOTAL)
+SELECT vm.SYSTEM_ID,vm.MITIGATIONSTATUS,count(1) TOTAL
+FROM (select SYSTEM_ID,CVE,MITIGATIONSTATUS
+    FROM CORE.VW_VULMASTER
+    where ((MitigationStatus=''fixed'' and cast(datemitigated as date) = cast((SELECT max(REPORT_DATE) from CORE.REPORT_IDS) as date))
+    or MitigationStatus=''open'' or MitigationStatus=''reopened'')) vm 
+JOIN CORE.KEV_CATALOG bodcat on bodcat.CVE = vm.cve
+group by vm.SYSTEM_ID,vm.MITIGATIONSTATUS;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set KEV_Open = t.Total
+from TEMP_KEV_TOTALS t
+where t.SYSTEM_ID = ss.SYSTEM_ID and t.MitigationStatus=''open'' and ss.REPORT_ID= :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set KEV_Reopened = t.Total
+from TEMP_KEV_TOTALS t
+where t.SYSTEM_ID = ss.SYSTEM_ID and t.MitigationStatus=''reopened'' and ss.REPORT_ID= :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set KEV_Fixed_Today = t.Total
+from TEMP_KEV_TOTALS t
+where t.SYSTEM_ID = ss.SYSTEM_ID and t.MitigationStatus=''fixed'' and ss.REPORT_ID= :P_Report_ID;
+
+
+DROP table TEMP_KEV_TOTALS;
+
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set KEV_Fixed_MonthToDate = t.Total
+from (select vm.SYSTEM_ID,count(1) Total
+    FROM CORE.VW_VULMASTER vm
+    JOIN CORE.KEV_CATALOG bodcat on bodcat.CVE = vm.cve
+    WHERE vm.MitigationStatus=''fixed''
+    and cast(datemitigated as date) between cast((select MAX(REPORT_DATE) from REPORT_IDS WHERE Is_EndOfMonth = 1) as date) and cast((select MAX(REPORT_DATE) from CORE.REPORT_IDS) as date)
+    group by vm.SYSTEM_ID) t
+where t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID= :P_Report_ID;
+
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VUL_CRITICAL_FIXED_TODAY = t.Total -- 231222 
+FROM (select SYSTEM_ID,count(1) Total FROM CORE.VW_VULMASTER WHERE UPPER(MITIGATIONSTATUS) = ''FIXED'' and UPPER(FISMASEVERITY) = ''CRITICAL'' and DATEMITIGATED::DATE = CURRENT_DATE() GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VUL_CRITICAL_OPEN = t.Total -- 231222
+FROM (select SYSTEM_ID,count(1) Total FROM CORE.VW_VULMASTER WHERE UPPER(MITIGATIONSTATUS) = ''OPEN'' AND UPPER(FISMASEVERITY) = ''CRITICAL'' GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VUL_CRITICAL_REOPENED = t.Total -- 231222
+FROM (select SYSTEM_ID,count(1) Total FROM CORE.VW_VULMASTER WHERE UPPER(MITIGATIONSTATUS) = ''REOPENED'' AND UPPER(FISMASEVERITY) = ''CRITICAL'' GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VUL_HIGH_FIXED_TODAY = t.Total -- 231222
+FROM (select SYSTEM_ID,count(1) Total FROM CORE.VW_VULMASTER WHERE UPPER(MITIGATIONSTATUS) = ''FIXED'' and UPPER(FISMASEVERITY) = ''HIGH'' and DATEMITIGATED::DATE = CURRENT_DATE() GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VUL_HIGH_OPEN = t.Total -- 231222
+FROM (select SYSTEM_ID,count(1) Total FROM CORE.VW_VULMASTER WHERE UPPER(MITIGATIONSTATUS) = ''OPEN'' AND UPPER(FISMASEVERITY) = ''HIGH'' GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VUL_HIGH_REOPENED = t.Total -- 231222
+FROM (select SYSTEM_ID,count(1) Total FROM CORE.VW_VULMASTER WHERE UPPER(MITIGATIONSTATUS) = ''REOPENED'' AND UPPER(FISMASEVERITY) = ''HIGH'' GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VUL_MEDIUM_FIXED_TODAY = t.Total -- 231222
+FROM (select SYSTEM_ID,count(1) Total FROM CORE.VW_VULMASTER WHERE UPPER(MITIGATIONSTATUS) = ''FIXED'' and UPPER(FISMASEVERITY) = ''MEDIUM'' and DATEMITIGATED::DATE = CURRENT_DATE() GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VUL_MEDIUM_OPEN = t.Total -- 231222
+FROM (select SYSTEM_ID,count(1) Total FROM CORE.VW_VULMASTER WHERE UPPER(MITIGATIONSTATUS) = ''OPEN'' AND UPPER(FISMASEVERITY) = ''MEDIUM'' GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VUL_MEDIUM_REOPENED = t.Total -- 231222
+FROM (select SYSTEM_ID,count(1) Total FROM CORE.VW_VULMASTER WHERE UPPER(MITIGATIONSTATUS) = ''REOPENED'' AND UPPER(FISMASEVERITY) = ''MEDIUM'' GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VUL_LOW_FIXED_TODAY = t.Total -- 231222
+FROM (select SYSTEM_ID,count(1) Total FROM CORE.VW_VULMASTER WHERE UPPER(MITIGATIONSTATUS) = ''FIXED'' and UPPER(FISMASEVERITY) = ''LOW'' and DATEMITIGATED::DATE = CURRENT_DATE() GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VUL_LOW_OPEN = t.Total -- 231222
+FROM (select SYSTEM_ID,count(1) Total FROM CORE.VW_VULMASTER WHERE UPPER(MITIGATIONSTATUS) = ''OPEN'' AND UPPER(FISMASEVERITY) = ''LOW'' GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VUL_LOW_REOPENED = t.Total -- 231222
+FROM (select SYSTEM_ID,count(1) Total FROM CORE.VW_VULMASTER WHERE UPPER(MITIGATIONSTATUS) = ''REOPENED'' AND UPPER(FISMASEVERITY) = ''LOW'' GROUP BY SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+-- UPDATE CORE.SYSTEMSUMMARY ss
+-- set VUL_DELETED_TODAY = t.Total -- 231222
+-- FROM (select SYSTEM_ID,count(1) Total FROM CORE.VULMASTER WHERE DATEDELETED::DATE = CURRENT_DATE() GROUP BY SYSTEM_ID) t
+-- WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+-- UPDATE CORE.SYSTEMSUMMARY ss
+-- SET VUL_INACTIVE_ASSET_TODAY = t.Total -- 231222
+-- from (select vm.SYSTEM_ID,count(1) Total
+--     from CORE.ASSET a
+--     join CORE.VULMASTER vm on vm.dw_asset_id = a.dw_asset_id
+--     where a.datedeleted::date = current_date() and a.is_applicable = 0 and vm.deletionreason IS NULL   
+--     group by vm.SYSTEM_ID) t
+-- where t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID= :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+set VUL_DELETED_TODAY = t.Total -- 231225
+FROM (select a.SYSTEM_ID,count(1) Total
+    from CORE.ASSET a
+    join CORE.VULMASTER vm on vm.dw_asset_id = a.dw_asset_id
+    where vm.DATEDELETED::DATE = CURRENT_DATE()   
+    group by a.SYSTEM_ID) t
+WHERE t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.SYSTEMSUMMARY ss
+SET VUL_INACTIVE_ASSET_TODAY = t.Total -- 231225
+from (select a.SYSTEM_ID,count(1) Total
+    from CORE.ASSET a
+    join CORE.VULMASTER vm on vm.dw_asset_id = a.dw_asset_id
+    where a.datedeleted::date = current_date() and a.is_applicable = 0 and vm.deletionreason IS NULL   
+    group by a.SYSTEM_ID) t
+where t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID= :P_Report_ID;
+-----------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------
+-- UPDATE DATACENTERSUMMARY
+-----------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------
+
+--
+-- Write all systems to DATACENTERSUMMARY table.
+-- Although not all Systems records represent datacenters, the data submitted
+-- might incorrectly put a System CFACTS_UUID in the datacenter_ID field.
+-- We still want to report these assets that are mistakenly assigned.
+--
+INSERT INTO CORE.DATACENTERSUMMARY
+    (ASSETS
+	,DATACENTER_ID
+	,HWAMRAWAWS
+	,HWAMRAWBIGFIX
+	,HWAMRAWFORESCOUT
+	,OPERATIONALSYSTEMS
+	,REPORT_ID
+	,SYSTEMS
+	,VULCRITICAL
+	,VULCRITICAL_GT15_LTE60DAYS
+	,VULCRITICAL_GT30_LTE60DAYS
+	,VULCRITICAL_GT60DAYS
+	,VULCRITICAL_GTE15DAYS
+	,VULCRITICAL_LTE15DAYS
+	,VULCRITICAL_LTE30DAYS
+	,VULDELETED
+	,VULHIGH
+	,VULHIGH_GT30_LTE60DAYS
+	,VULHIGH_GT60DAYS
+	,VULHIGH_LTE30DAYS
+	,VULLOW
+	,VULMEDIUM
+	,VULRAW
+	,VULRAW_CRITICAL
+	,VULRAW_HIGH
+	,VULRAW_LOW
+	,VULRAW_MEDIUM
+	,VULUNIQUECRITICAL_GT15_LTE60DAYS
+	,VULUNIQUECRITICAL_GT30_LTE60DAYS
+	,VULUNIQUECRITICAL_GT60DAYS
+	,VULUNIQUECRITICAL_GTE15DAYS
+	,VULUNIQUEHIGH_GT30_LTE60DAYS
+	,VULUNIQUEHIGH_GT60DAYS
+	,VULUNIQUELOW
+	,VULUNIQUEMEDIUM
+)
+SELECT
+    0 as ASSETS
+	,SYSTEM_ID as DATACENTER_ID
+	,0 as HWAMRAWAWS
+	,0 as HWAMRAWBIGFIX
+	,0 as HWAMRAWFORESCOUT
+	,0 as OPERATIONALSYSTEMS
+	,:P_Report_ID
+	,0 as SYSTEMS
+	,0 as VULCRITICAL
+	,0 as VULCRITICAL_GT15_LTE60DAYS
+	,0 as VULCRITICAL_GT30_LTE60DAYS
+	,0 as VULCRITICAL_GT60DAYS
+	,0 as VULCRITICAL_GTE15DAYS
+	,0 as VULCRITICAL_LTE15DAYS
+	,0 as VULCRITICAL_LTE30DAYS
+	,0 as VULDELETED
+	,0 as VULHIGH
+	,0 as VULHIGH_GT30_LTE60DAYS
+	,0 as VULHIGH_GT60DAYS
+	,0 as VULHIGH_LTE30DAYS
+	,0 as VULLOW
+	,0 as VULMEDIUM
+	,0 as VULRAW
+	,0 as VULRAW_CRITICAL
+	,0 as VULRAW_HIGH
+	,0 as VULRAW_LOW
+	,0 as VULRAW_MEDIUM
+	,0 as VULUNIQUECRITICAL_GT15_LTE60DAYS
+	,0 as VULUNIQUECRITICAL_GT30_LTE60DAYS
+	,0 as VULUNIQUECRITICAL_GT60DAYS
+	,0 as VULUNIQUECRITICAL_GTE15DAYS
+	,0 as VULUNIQUEHIGH_GT30_LTE60DAYS
+	,0 as VULUNIQUEHIGH_GT60DAYS
+	,0 as VULUNIQUELOW
+	,0 as VULUNIQUEMEDIUM
+FROM CORE.VW_SYSTEMS;
+
+-- 230918 RECORD_COUNT := SQLROWCOUNT;
+-- 230918 Msg :=  ''DATACENTERSUMMARY created='' || cast(RECORD_COUNT as varchar);
+-- 230918 CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); 
+
+
+UPDATE CORE.DATACENTERSUMMARY ss
+set Assets = t.Total
+FROM (select DATACENTER_ID,COUNT(1) Total 
+    FROM CORE.VW_ASSETS
+    GROUP BY DATACENTER_ID) t 
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSUMMARY ss
+set Systems = t.Total
+FROM (select DATACENTER_ID,COUNT(1) Total 
+    FROM (SELECT DISTINCT DATACENTER_ID, SYSTEM_ID FROM CORE.VW_ASSETS)    
+    GROUP BY DATACENTER_ID) t 
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSUMMARY ss
+set OperationalSystems = t.Total
+FROM (select DATACENTER_ID,COUNT(1) Total 
+    FROM (SELECT DISTINCT a.DATACENTER_ID, a.SYSTEM_ID 
+        FROM CORE.VW_ASSETS a
+        JOIN CORE.VW_SYSTEMS s on s.SYSTEM_ID = a.SYSTEM_ID and s.TLC_Phase = ''Operate''
+    )  
+    GROUP BY DATACENTER_ID) t 
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSUMMARY ss
+set VulDeleted = t.Total
+FROM (SELECT a.DATACENTER_ID,count(1) Total
+    FROM CORE.VULMASTER vm
+    JOIN CORE.VW_ASSETS a on a.DW_ASSET_ID = vm.DW_ASSET_ID
+    WHERE vm.DELETIONREASON IS NULL and vm.datedeleted::date = CURRENT_DATE
+    GROUP BY a.DATACENTER_ID) t 
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and ss.REPORT_ID = :P_Report_ID;
+
+    
+DROP TABLE IF EXISTS TEMP_DATACENTER_VUL_TOTALS;
+
+CREATE TEMPORARY TABLE TEMP_DATACENTER_VUL_TOTALS (CVE VARCHAR, DaysSinceDiscovery NUMBER, FISMASEVERITY VARCHAR , MITIGATIONSTATUS VARCHAR, DATACENTER_ID VARCHAR);
+
+--
+-- Only vulnerabilities that are:
+-- a) Not logically deleted 
+-- b) Assets related to vulnerability are active (not logically deleted)
+-- c) Vulnerbility is not fixed (open/reopen)
+--
+INSERT INTO TEMP_DATACENTER_VUL_TOTALS (CVE, DaysSinceDiscovery, FISMASEVERITY, MITIGATIONSTATUS, DATACENTER_ID)
+select CVE, DaysSinceDiscovery, FISMASeverity, MitigationStatus, DATACENTER_ID -- 230608 1427 was SYSTEM_ID
+	FROM CORE.VW_VULMASTER WHERE MitigationStatus <> ''fixed'';
+
+
+----------------------------
+-- Critical Vulnerabilities
+----------------------------
+
+UPDATE CORE.DATACENTERSUMMARY ss
+set VulCritical = t.Total
+FROM (select DATACENTER_ID,count(1) Total FROM TEMP_DATACENTER_VUL_TOTALS WHERE FISMAseverity = ''Critical'' GROUP BY DATACENTER_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSUMMARY ss
+set VulCritical_lte15days = t.Total
+FROM (select DATACENTER_ID,count(1) Total FROM TEMP_DATACENTER_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery <= 15 GROUP BY DATACENTER_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSUMMARY ss
+set VulUniqueCritical_gt15_lte60days = t.Total
+FROM (select DATACENTER_ID,count(1) Total 
+    FROM (SELECT CVE,DATACENTER_ID FROM TEMP_DATACENTER_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery > 15 and DaysSinceDiscovery <= 60 GROUP BY CVE,DATACENTER_ID)
+	GROUP BY DATACENTER_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSUMMARY ss
+set VulCritical_gt15_lte60days = t.Total
+FROM (select DATACENTER_ID,count(1) Total FROM TEMP_DATACENTER_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery > 15 and DaysSinceDiscovery <= 60 GROUP BY DATACENTER_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSUMMARY ss
+set VulCritical_lte30days = t.Total
+FROM (select DATACENTER_ID,count(1) Total FROM TEMP_DATACENTER_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery <= 30 GROUP BY DATACENTER_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSUMMARY ss
+set VulUniqueCritical_gt30_lte60days = t.Total
+FROM (select DATACENTER_ID,count(1) Total 
+    FROM (SELECT CVE,DATACENTER_ID FROM TEMP_DATACENTER_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery > 30 and DaysSinceDiscovery <= 60 GROUP BY CVE,DATACENTER_ID)
+	GROUP BY DATACENTER_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSUMMARY ss
+set VulCritical_gt30_lte60days = t.Total
+FROM (select DATACENTER_ID,count(1) Total FROM TEMP_DATACENTER_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery > 30 and DaysSinceDiscovery <= 60 GROUP BY DATACENTER_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSUMMARY ss
+set VulUniqueCritical_gt60days = t.Total
+FROM (select DATACENTER_ID,count(1) Total 
+    FROM (SELECT CVE,DATACENTER_ID FROM TEMP_DATACENTER_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery > 60 GROUP BY CVE,DATACENTER_ID)
+	GROUP BY DATACENTER_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSUMMARY ss
+set VulCritical_gt60days = t.Total
+FROM (select DATACENTER_ID,count(1) Total FROM TEMP_DATACENTER_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery > 60 GROUP BY DATACENTER_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and ss.REPORT_ID = :P_Report_ID;
+
+--Msg :=  ''Finished DATACENTERSUMMARY(Critical)'';
+--CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); 
+
+----------------------------
+-- High Vulnerabilities
+----------------------------
+
+UPDATE CORE.DATACENTERSUMMARY ss
+set VulHigh = t.Total
+FROM (select DATACENTER_ID,count(1) Total FROM TEMP_DATACENTER_VUL_TOTALS WHERE FISMAseverity = ''High'' GROUP BY DATACENTER_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSUMMARY ss
+set VulHigh_lte30days = t.Total
+FROM (select DATACENTER_ID,count(1) Total FROM TEMP_DATACENTER_VUL_TOTALS WHERE FISMAseverity = ''High'' and DaysSinceDiscovery <= 30 GROUP BY DATACENTER_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSUMMARY ss
+set VulUniqueHigh_gt30_lte60days = t.Total
+FROM (select DATACENTER_ID,count(1) Total 
+    FROM (SELECT CVE,DATACENTER_ID FROM TEMP_DATACENTER_VUL_TOTALS WHERE FISMAseverity = ''High'' and DaysSinceDiscovery > 30 and DaysSinceDiscovery <= 60 GROUP BY CVE,DATACENTER_ID)
+	GROUP BY DATACENTER_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSUMMARY ss
+set VulHigh_gt30_lte60days = t.Total
+FROM (select DATACENTER_ID,count(1) Total FROM TEMP_DATACENTER_VUL_TOTALS WHERE FISMAseverity = ''High'' and DaysSinceDiscovery > 30 and DaysSinceDiscovery <= 60 GROUP BY DATACENTER_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSUMMARY ss
+set VulUniqueHigh_gt60days = t.Total
+FROM (select DATACENTER_ID,count(1) Total 
+    FROM (SELECT CVE,DATACENTER_ID FROM TEMP_DATACENTER_VUL_TOTALS WHERE FISMAseverity = ''High'' and DaysSinceDiscovery > 60 GROUP BY CVE,DATACENTER_ID)
+	GROUP BY DATACENTER_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSUMMARY ss
+set VulHigh_gt60days = t.Total
+FROM (select DATACENTER_ID,count(1) Total FROM TEMP_DATACENTER_VUL_TOTALS WHERE FISMAseverity = ''High'' and DaysSinceDiscovery > 60 GROUP BY DATACENTER_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and ss.REPORT_ID = :P_Report_ID;
+
+--Msg :=  ''Finished DATACENTERSUMMARY(High)'';
+--CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); 
+
+----------------------------
+-- Medium Vulnerabilities
+----------------------------
+
+UPDATE CORE.DATACENTERSUMMARY ss
+set VulMedium = t.Total
+FROM (select DATACENTER_ID,count(1) Total FROM TEMP_DATACENTER_VUL_TOTALS WHERE FISMAseverity = ''Medium'' GROUP BY DATACENTER_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSUMMARY ss
+set VulUniqueMedium = t.Total
+FROM (select DATACENTER_ID,count(1) Total 
+    FROM (SELECT CVE,DATACENTER_ID FROM TEMP_DATACENTER_VUL_TOTALS WHERE FISMAseverity = ''Medium'' GROUP BY CVE,DATACENTER_ID)
+	GROUP BY DATACENTER_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and ss.REPORT_ID = :P_Report_ID;
+
+--Msg :=  ''Finished DATACENTERSUMMARY(Medium)'';
+--CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); 
+
+----------------------------
+-- Low Vulnerabilities
+----------------------------
+
+UPDATE CORE.DATACENTERSUMMARY ss
+set VulLow = t.Total
+FROM (select DATACENTER_ID,count(1) Total FROM TEMP_DATACENTER_VUL_TOTALS WHERE FISMAseverity = ''Low'' GROUP BY DATACENTER_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSUMMARY ss
+set VulUniqueLow = t.Total
+FROM (select DATACENTER_ID,count(1) Total 
+    FROM (SELECT CVE,DATACENTER_ID FROM TEMP_DATACENTER_VUL_TOTALS WHERE FISMAseverity = ''Low'' GROUP BY CVE,DATACENTER_ID)
+	GROUP BY DATACENTER_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and ss.REPORT_ID = :P_Report_ID;
+
+--Msg :=  ''Finished DATACENTERSUMMARY(Low)'';
+--CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); 
+
+
+-----------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------
+-- UPDATE DATACENTERSYSTEMSUMMARY (Systems split between >1 datacenter)
+-----------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------
+
+-- Insert DATACENTERSYSTEMSUMMARY based on HWAM found
+INSERT INTO CORE.DATACENTERSYSTEMSUMMARY
+    (ASSETS
+	,DATACENTER_ID
+	,HWAMRAWAWS
+	,HWAMRAWBIGFIX
+	,HWAMRAWFORESCOUT
+	,REPORT_ID
+	,SYSTEM_ID
+	,VULCRITICAL
+	,VULCRITICAL_GT15_LTE60DAYS
+	,VULCRITICAL_GT30_LTE60DAYS
+	,VULCRITICAL_GT60DAYS
+	,VULCRITICAL_GTE15DAYS
+	,VULCRITICAL_LTE15DAYS
+	,VULCRITICAL_LTE30DAYS
+	,VULDELETED
+	,VULHIGH
+	,VULHIGH_GT30_LTE60DAYS
+	,VULHIGH_GT60DAYS
+	,VULHIGH_LTE30DAYS
+	,VULLOW
+	,VULMEDIUM
+	,VULRAW
+	,VULRAW_CRITICAL
+	,VULRAW_HIGH
+	,VULRAW_LOW
+	,VULRAW_MEDIUM
+	,VULUNIQUECRITICAL_GT15_LTE60DAYS
+	,VULUNIQUECRITICAL_GT30_LTE60DAYS
+	,VULUNIQUECRITICAL_GT60DAYS
+	,VULUNIQUECRITICAL_GTE15DAYS
+	,VULUNIQUEHIGH_GT30_LTE60DAYS
+	,VULUNIQUEHIGH_GT60DAYS
+	,VULUNIQUELOW
+	,VULUNIQUEMEDIUM
+)
+SELECT 
+    0 as ASSETS
+	,t.DATACENTER_ID
+	,0 as HWAMRAWAWS
+	,0 as HWAMRAWBIGFIX
+	,0 as HWAMRAWFORESCOUT
+	,:P_Report_ID
+	,t.SYSTEM_ID
+	,0 as VULCRITICAL
+	,0 as VULCRITICAL_GT15_LTE60DAYS
+	,0 as VULCRITICAL_GT30_LTE60DAYS
+	,0 as VULCRITICAL_GT60DAYS
+	,0 as VULCRITICAL_GTE15DAYS
+	,0 as VULCRITICAL_LTE15DAYS
+	,0 as VULCRITICAL_LTE30DAYS
+	,0 as VULDELETED
+	,0 as VULHIGH
+	,0 as VULHIGH_GT30_LTE60DAYS
+	,0 as VULHIGH_GT60DAYS
+	,0 as VULHIGH_LTE30DAYS
+	,0 as VULLOW
+	,0 as VULMEDIUM
+	,0 as VULRAW
+	,0 as VULRAW_CRITICAL
+	,0 as VULRAW_HIGH
+	,0 as VULRAW_LOW
+	,0 as VULRAW_MEDIUM
+	,0 as VULUNIQUECRITICAL_GT15_LTE60DAYS
+	,0 as VULUNIQUECRITICAL_GT30_LTE60DAYS
+	,0 as VULUNIQUECRITICAL_GT60DAYS
+	,0 as VULUNIQUECRITICAL_GTE15DAYS
+	,0 as VULUNIQUEHIGH_GT30_LTE60DAYS
+	,0 as VULUNIQUEHIGH_GT60DAYS
+	,0 as VULUNIQUELOW
+	,0 as VULUNIQUEMEDIUM
+FROM (select a.DATACENTER_ID,a.SYSTEM_ID
+	FROM CORE.VW_ASSETS a
+	JOIN CORE.VW_SYSTEMS s on s.SYSTEM_ID = a.SYSTEM_ID
+	GROUP BY a.DATACENTER_ID, a.SYSTEM_ID) t;
+
+-- 230918 RECORD_COUNT := SQLROWCOUNT;
+-- 230918 Msg :=  ''DATACENTERSYSTEMSUMMARY created='' || cast(RECORD_COUNT as varchar);
+-- 230918 CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); 
+
+UPDATE CORE.DATACENTERSYSTEMSUMMARY ss
+set Assets = t.Total
+FROM (select DATACENTER_ID,SYSTEM_ID,COUNT(1) Total 
+    FROM CORE.VW_ASSETS
+    GROUP BY DATACENTER_ID,SYSTEM_ID) t 
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSYSTEMSUMMARY ss
+set VulDeleted = t.Total
+FROM (SELECT a.DATACENTER_ID,a.SYSTEM_ID,count(1) Total
+    FROM CORE.VULMASTER vm
+    JOIN CORE.VW_ASSETS a on a.DW_ASSET_ID = vm.DW_ASSET_ID
+    WHERE vm.DELETIONREASON IS NULL and vm.datedeleted::date = CURRENT_DATE
+    GROUP BY a.DATACENTER_ID,a.SYSTEM_ID) t 
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+    
+DROP TABLE IF EXISTS TEMP_DATACENTER_SYSTEM_VUL_TOTALS;
+
+CREATE TEMPORARY TABLE TEMP_DATACENTER_SYSTEM_VUL_TOTALS (CVE VARCHAR, DATACENTER_ID VARCHAR, DaysSinceDiscovery NUMBER, FISMASEVERITY VARCHAR , MITIGATIONSTATUS VARCHAR, SYSTEM_ID VARCHAR);
+
+--
+-- Only vulnerabilities that are:
+-- a) Not logically deleted 
+-- b) Assets related to vulnerability are active (not logically deleted)
+-- c) Vulnerbility is not fixed (open/reopen)
+--
+INSERT INTO TEMP_DATACENTER_SYSTEM_VUL_TOTALS (CVE, DATACENTER_ID, DaysSinceDiscovery, FISMASEVERITY, MITIGATIONSTATUS, SYSTEM_ID)
+select CVE, DATACENTER_ID, DaysSinceDiscovery, FISMASeverity, MitigationStatus,SYSTEM_ID
+	FROM CORE.VW_VULMASTER WHERE MitigationStatus <> ''fixed'';
+
+
+
+----------------------------
+-- Critical Vulnerabilities
+----------------------------
+
+UPDATE CORE.DATACENTERSYSTEMSUMMARY ss
+set VulCritical = t.Total
+FROM (select DATACENTER_ID,SYSTEM_ID,count(1) Total FROM TEMP_DATACENTER_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Critical'' GROUP BY DATACENTER_ID,SYSTEM_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSYSTEMSUMMARY ss
+set VulCritical_lte15days = t.Total
+FROM (select DATACENTER_ID,SYSTEM_ID,count(1) Total FROM TEMP_DATACENTER_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery <= 15 GROUP BY DATACENTER_ID,SYSTEM_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSYSTEMSUMMARY ss
+set VulUniqueCritical_gt15_lte60days = t.Total
+FROM (select DATACENTER_ID,SYSTEM_ID,count(1) Total 
+    FROM (SELECT CVE,DATACENTER_ID,SYSTEM_ID FROM TEMP_DATACENTER_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery > 15 and DaysSinceDiscovery <= 60 GROUP BY CVE,DATACENTER_ID,SYSTEM_ID)
+	GROUP BY DATACENTER_ID,SYSTEM_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSYSTEMSUMMARY ss
+set VulCritical_gt15_lte60days = t.Total
+FROM (select DATACENTER_ID,SYSTEM_ID,count(1) Total FROM TEMP_DATACENTER_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery > 15 and DaysSinceDiscovery <= 60 GROUP BY DATACENTER_ID,SYSTEM_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSYSTEMSUMMARY ss
+set VulCritical_lte30days = t.Total
+FROM (select DATACENTER_ID,SYSTEM_ID,count(1) Total FROM TEMP_DATACENTER_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery <= 30 GROUP BY DATACENTER_ID,SYSTEM_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSYSTEMSUMMARY ss
+set VulUniqueCritical_gt30_lte60days = t.Total
+FROM (select DATACENTER_ID,SYSTEM_ID,count(1) Total 
+    FROM (SELECT CVE,DATACENTER_ID,SYSTEM_ID FROM TEMP_DATACENTER_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery > 30 and DaysSinceDiscovery <= 60 GROUP BY CVE,DATACENTER_ID,SYSTEM_ID)
+	GROUP BY DATACENTER_ID,SYSTEM_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSYSTEMSUMMARY ss
+set VulCritical_gt30_lte60days = t.Total
+FROM (select DATACENTER_ID,SYSTEM_ID,count(1) Total FROM TEMP_DATACENTER_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery > 30 and DaysSinceDiscovery <= 60 GROUP BY DATACENTER_ID,SYSTEM_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSYSTEMSUMMARY ss
+set VulUniqueCritical_gt60days = t.Total
+FROM (select DATACENTER_ID,SYSTEM_ID,count(1) Total 
+    FROM (SELECT CVE,DATACENTER_ID,SYSTEM_ID FROM TEMP_DATACENTER_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery > 60 GROUP BY CVE,DATACENTER_ID,SYSTEM_ID)
+	GROUP BY DATACENTER_ID,SYSTEM_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSYSTEMSUMMARY ss
+set VulCritical_gt60days = t.Total
+FROM (select DATACENTER_ID,SYSTEM_ID,count(1) Total FROM TEMP_DATACENTER_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Critical'' and DaysSinceDiscovery > 60 GROUP BY DATACENTER_ID,SYSTEM_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+--Msg :=  ''Finished DATACENTERSYSTEMSUMMARY(Critical)'';
+--CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); 
+
+----------------------------
+-- High Vulnerabilities
+----------------------------
+
+UPDATE CORE.DATACENTERSYSTEMSUMMARY ss
+set VulHigh = t.Total
+FROM (select DATACENTER_ID,SYSTEM_ID,count(1) Total FROM TEMP_DATACENTER_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''High'' GROUP BY DATACENTER_ID,SYSTEM_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSYSTEMSUMMARY ss
+set VulHigh_lte30days = t.Total
+FROM (select DATACENTER_ID,SYSTEM_ID,count(1) Total FROM TEMP_DATACENTER_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''High'' and DaysSinceDiscovery <= 30 GROUP BY DATACENTER_ID,SYSTEM_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSYSTEMSUMMARY ss
+set VulUniqueHigh_gt30_lte60days = t.Total
+FROM (select DATACENTER_ID,SYSTEM_ID,count(1) Total 
+    FROM (SELECT CVE,DATACENTER_ID,SYSTEM_ID FROM TEMP_DATACENTER_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''High'' and DaysSinceDiscovery > 30 and DaysSinceDiscovery <= 60 GROUP BY CVE,DATACENTER_ID,SYSTEM_ID)
+	GROUP BY DATACENTER_ID,SYSTEM_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSYSTEMSUMMARY ss
+set VulHigh_gt30_lte60days = t.Total
+FROM (select DATACENTER_ID,SYSTEM_ID,count(1) Total FROM TEMP_DATACENTER_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''High'' and DaysSinceDiscovery > 30 and DaysSinceDiscovery <= 60 GROUP BY DATACENTER_ID,SYSTEM_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSYSTEMSUMMARY ss
+set VulUniqueHigh_gt60days = t.Total
+FROM (select DATACENTER_ID,SYSTEM_ID,count(1) Total 
+    FROM (SELECT CVE,DATACENTER_ID,SYSTEM_ID FROM TEMP_DATACENTER_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''High'' and DaysSinceDiscovery > 60 GROUP BY CVE,DATACENTER_ID,SYSTEM_ID)
+	GROUP BY DATACENTER_ID,SYSTEM_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSYSTEMSUMMARY ss
+set VulHigh_gt60days = t.Total
+FROM (select DATACENTER_ID,SYSTEM_ID,count(1) Total FROM TEMP_DATACENTER_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''High'' and DaysSinceDiscovery > 60 GROUP BY DATACENTER_ID,SYSTEM_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+--Msg :=  ''Finished DATACENTERSYSTEMSUMMARY(High)'';
+--CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); 
+
+----------------------------
+-- Medium Vulnerabilities
+----------------------------
+
+UPDATE CORE.DATACENTERSYSTEMSUMMARY ss
+set VulMedium = t.Total
+FROM (select DATACENTER_ID,SYSTEM_ID,count(1) Total FROM TEMP_DATACENTER_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Medium'' GROUP BY DATACENTER_ID,SYSTEM_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSYSTEMSUMMARY ss
+set VulUniqueMedium = t.Total
+FROM (select DATACENTER_ID,SYSTEM_ID,count(1) Total 
+    FROM (SELECT CVE,DATACENTER_ID,SYSTEM_ID FROM TEMP_DATACENTER_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Medium'' GROUP BY CVE,DATACENTER_ID,SYSTEM_ID)
+	GROUP BY DATACENTER_ID,SYSTEM_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+--Msg :=  ''Finished DATACENTERSYSTEMSUMMARY(Medium)'';
+--CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); 
+
+----------------------------
+-- Low Vulnerabilities
+----------------------------
+
+UPDATE CORE.DATACENTERSYSTEMSUMMARY ss
+set VulLow = t.Total
+FROM (select DATACENTER_ID,SYSTEM_ID,count(1) Total FROM TEMP_DATACENTER_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Low'' GROUP BY DATACENTER_ID,SYSTEM_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+UPDATE CORE.DATACENTERSYSTEMSUMMARY ss
+set VulUniqueLow = t.Total
+FROM (select DATACENTER_ID,SYSTEM_ID,count(1) Total 
+    FROM (SELECT CVE,DATACENTER_ID,SYSTEM_ID FROM TEMP_DATACENTER_SYSTEM_VUL_TOTALS WHERE FISMAseverity = ''Low'' GROUP BY CVE,DATACENTER_ID,SYSTEM_ID)
+	GROUP BY DATACENTER_ID,SYSTEM_ID) t
+WHERE t.DATACENTER_ID = ss.DATACENTER_ID and t.SYSTEM_ID = ss.SYSTEM_ID and ss.REPORT_ID = :P_Report_ID;
+
+--Msg :=  ''Finished DATACENTERSYSTEMSUMMARY(Low)'';
+--CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); 
+
+CALL CORE.SP_CRM_END_PROCEDURE (:Appl);
+
+return ''Success'';
+
+EXCEPTION
+  when statement_error then
+    insert into CORE.ALERTLOG (APPL,CUSTOM_ERRMSG,ERRTYPE,SQLCODE,SQLERRM,SQLSTATE) VALUES(:APPL,:ExceptionMsg,''Statement_Error'',:SQLCODE,:SQLERRM,:SQLSTATE);
+    raise;
+  when CRM_logic_exception then
+    insert into CORE.ALERTLOG (APPL,CUSTOM_ERRMSG,ERRTYPE,SQLCODE,SQLERRM,SQLSTATE) VALUES(:APPL,:ExceptionMsg,''CRM_logic_exception'',:SQLCODE,:SQLERRM,:SQLSTATE);
+    raise;
+  when other then
+    insert into CORE.ALERTLOG (APPL,CUSTOM_ERRMSG,ERRTYPE,SQLCODE,SQLERRM,SQLSTATE) VALUES(:APPL,:ExceptionMsg,''Other error'',:SQLCODE,:SQLERRM,:SQLSTATE);
+    raise;
+END;
+';

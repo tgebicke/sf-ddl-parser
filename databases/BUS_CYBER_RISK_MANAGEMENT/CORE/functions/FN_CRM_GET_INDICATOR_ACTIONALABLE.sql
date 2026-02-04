@@ -1,0 +1,7 @@
+CREATE OR REPLACE FUNCTION "FN_CRM_GET_INDICATOR_ACTIONALABLE"()
+RETURNS VARCHAR(16777216)
+LANGUAGE SQL
+COMMENT='Return string indicating record is actionable'
+AS '
+''Actionable''
+';

@@ -1,0 +1,1 @@
+create or replace schema DEV_CEDE COMMENT='For developing new views for Tableau';

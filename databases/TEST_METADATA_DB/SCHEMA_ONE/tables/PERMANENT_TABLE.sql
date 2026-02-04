@@ -1,0 +1,4 @@
+create or replace TABLE PERMANENT_TABLE (
+	ID NUMBER(38,0),
+	NAME VARCHAR(16777216)
+);

@@ -1,0 +1,7 @@
+CREATE OR REPLACE FUNCTION "FN_CRM_GET_ROWDISPOSITION_NOT_NEEDED"()
+RETURNS VARCHAR(16777216)
+LANGUAGE SQL
+COMMENT='Return string indicating record is not needed'
+AS '
+''Not Needed''
+';

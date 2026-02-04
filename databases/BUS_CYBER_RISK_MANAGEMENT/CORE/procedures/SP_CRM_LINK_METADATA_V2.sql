@@ -1,0 +1,621 @@
+CREATE OR REPLACE PROCEDURE "SP_CRM_LINK_METADATA_V2"("P_SNAPSHOT_ID" NUMBER(38,0))
+RETURNS VARCHAR(16777216)
+LANGUAGE SQL
+COMMENT='Link metadata to each related vulnerability record within snapshot'
+EXECUTE AS OWNER
+AS '
+DECLARE
+Appl varchar := ''SP_CRM_LINK_METADATA_V2'';
+ExceptionMsg varchar := ''Default'';
+Msg varchar;
+StartOfProcedure datetime := current_timestamp();
+CRM_logic_exception exception (-20002, ''Raised CRM_logic_exception.'');
+PARENT_DATACATEGORY varchar;
+DATACATEGORY varchar;
+HWAM varchar := ''HWAM'';
+VUL varchar := ''VUL'';
+AWS_HWAM varchar := ''AWS HWAM'';
+AWS_VUL varchar := ''AWS VUL'';
+CCIC_VUL varchar := ''CCIC VUL'';
+AWS_VUL_MITIGATED varchar := ''AWS VUL MITIGATED'';
+CCIC_VUL_MITIGATED varchar := ''CCIC VUL MITIGATED'';
+MAG_VUL varchar := ''MAG VUL''; -- 241021 CR1012
+MAG_VUL_MITIGATED varchar := ''MAG VUL MITIGATED''; -- 241021 CR1012
+FORESCOUT varchar := ''FORESCOUT'';
+RECORD_COUNT number;
+IS_VERBOSE_MODE boolean := 1;
+STEP_MSG varchar;
+METADATA_PREFIX varchar := ''Metadata msg:'';
+
+BEGIN
+/***********************************************************************************************************************************
+
+NOTE: VW_HWAM_AWS_V2, VW_IUSG_CUMULATIVE_VULNS, VW_IUSG_MITIGATED_VULNS handles ASSET_ID_TATTOO,AWS_ACCOUNTID
+NOTE: SP_CRM_PULL_FORESCOUT_V3 handles SYSTEM_ID,ASSET_ID_TATTOO,IS_FORESCOUT_MANAGED
+
+CCIC (On-prem) Tenable Vulnerability data does not contain ASSET_ID_TATTOO or PRIMARY_FISMA_ID_TATTOO values.
+In order to provide these two tag values there are two Plugin_IDs (i.e. Scripts) that read the tag data from the asset.
+These plugin results are part of the vulnerability data stream but are not in-themseleves vulnerabilities.
+The plugin results are stored in the Tenable field PLUGINTEXT and are parsed to obtain ASSET_ID_TATTOO and SYSTEM_ID,
+Note: Plugins 1218405 and 1221295 were written in-house.
+
+PluginID    PluginName                                                      Operating System
+1218405     Check for Empty FISMA Tattoo files.                             Linux
+1221295     Print out FISMA registry keys.                                  Windows
+1032381     Check for Empty FISMA Tattoo files.	THIS PLUGIN APPEARS TO BE EXPERIMENTAL - DO NOT USE IT
+90191       Amazon Web Services EC2 Instance Metadata Enumeration (Unix)	Unix
+90427       Amazon Web Services EC2 Instance Metadata Enumeration (Windows)	Windows
+99172       Microsoft Azure Instance Metadata Enumeration (Windows) -- 241021 Elliot suggested this as a possibility
+99171       Microsoft Azure Instance Metadata Enumeration (Unix) -- 241021 Elliot suggested this as a possibility
+19506       Nessus Scan Information	
+20811       Microsoft Windows Installed Software Enumeration (credentialed check)
+
+The purpose of this stored procedure is to enhance the actual vulnerability record with the tag values for proper identification
+of the asset.
+
+Although the plugins are supposed to return the ASSET_ID_TATTOO or PRIMARY_FISMA_ID_TATTOO values this is not always the case.
+One factor for this failure is that a credentialed scan was not done.
+
+TATTOO PLUGINS ALWAYS HAVE THE FOLLOWING (SOMETIMES MACADDRESS IS NULL)
+DATACENTER_ID	DNSNAME	IP	MACADDRESS	NETBIOSNAME	TENABLEUUID
+
+************************************************************************************************************************************/
+
+select DATACATEGORY,PARENT_DATACATEGORY into :DATACATEGORY,:PARENT_DATACATEGORY FROM CORE.SNAPSHOT_IDS where SNAPSHOT_ID = :P_SNAPSHOT_ID;
+Appl := :Appl || ''('' || DATACATEGORY || '')''; -- This helps to clarify which snapshot we are processing
+CALL CORE.SP_CRM_START_PROCEDURE (:Appl);
+
+--TRUNCATE TABLE TEMP_ASSET_METADATA;
+--Msg := ''TRUNCATED TEMP_ASSET_METADATA'';
+--If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+
+BEGIN TRANSACTION;
+--
+-- Write distinct SNAPSHOT_ID/TEMP_DW_ASSET_ID to TEMP_ASSET_METADATA as an initialization step
+--
+IF (:PARENT_DATACATEGORY = :HWAM) THEN
+    BEGIN
+    INSERT INTO TEMP_ASSET_METADATA 
+        (AWS_ACCOUNTID,DATACENTER_ID,DATA_ERROR_ARRAY,DATA_WARNING_ARRAY,IS_FORESCOUT_MANAGED,IS_TENABLE_CREDENTIALED_SCAN,SNAPSHOT_ID,SYSTEM_ID,TEMP_DW_ASSET_ID)
+    SELECT DISTINCT NULL,DATACENTER_ID ,ARRAY_CONSTRUCT(),ARRAY_CONSTRUCT(),NULL,NULL,SNAPSHOT_ID,NULL,TEMP_DW_ASSET_ID -- 250129 CR1078
+    FROM RAW_HWAM
+    WHERE SNAPSHOT_ID = :P_SNAPSHOT_ID;
+    END;
+ELSE
+    BEGIN
+    INSERT INTO TEMP_ASSET_METADATA
+        (AWS_ACCOUNTID,DATACENTER_ID,DATA_ERROR_ARRAY,DATA_WARNING_ARRAY,IS_FORESCOUT_MANAGED,IS_TENABLE_CREDENTIALED_SCAN,SNAPSHOT_ID,SYSTEM_ID,TEMP_DW_ASSET_ID)
+    SELECT DISTINCT NULL,DATACENTER_ID ,ARRAY_CONSTRUCT(),ARRAY_CONSTRUCT(),NULL,NULL,SNAPSHOT_ID,NULL,TEMP_DW_ASSET_ID -- 250129 CR1078
+    FROM RAW_TENABLE_VUL
+    WHERE SNAPSHOT_ID = :P_SNAPSHOT_ID;
+    END;
+END IF;
+COMMIT;
+
+Msg := ''Finished initialize of TEMP_ASSET_METADATA'';
+If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+
+IF (:PARENT_DATACATEGORY = :VUL) THEN
+    BEGIN
+    Msg := ''PARENT_DATACATEGORY='' || :PARENT_DATACATEGORY;
+    If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+    --
+    -- Capture Nessus Scan Information. Pertains to AWS and CCIC vulnerability data.
+    --
+    BEGIN TRANSACTION;
+    UPDATE TEMP_ASSET_METADATA upd
+    set PLUGINTEXT_NESSUS_SCAN_INFO = met.PLUGINTEXT
+    FROM (select DISTINCT TEMP_DW_ASSET_ID,PLUGINTEXT
+        from RAW_TENABLE_VUL WHERE SNAPSHOT_ID = :P_SNAPSHOT_ID and PLUGIN_ID IN (''19506'')) met
+    WHERE upd.TEMP_DW_ASSET_ID = met.TEMP_DW_ASSET_ID;
+
+    Msg := ''Updated TEMP_ASSET_METADATA.PLUGINTEXT_NESSUS_SCAN_INFO'';
+    If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+    COMMIT;
+
+    BEGIN TRANSACTION;
+    UPDATE TEMP_ASSET_METADATA
+    set IS_TENABLE_CREDENTIALED_SCAN = CORE.FN_CRM_PARSE_TENABLE_CREDENTIALED_SCAN_V2(PLUGINTEXT_NESSUS_SCAN_INFO)
+    ,NESSUS_VERSION = CORE.FN_CRM_PARSE_TENABLE_NESSUS_VERSION(PLUGINTEXT_NESSUS_SCAN_INFO)
+    ,SCAN_START_DATE = REF_LOOKUPS.SHARED.FN_PUB_ANY_TO_TIMESTAMP_LTZ(CORE.FN_CRM_PARSE_TENABLE_SCAN_START_DATE(PLUGINTEXT_NESSUS_SCAN_INFO)) 
+    where SNAPSHOT_ID = :P_SNAPSHOT_ID and PLUGINTEXT_NESSUS_SCAN_INFO IS NOT NULL;
+
+    RECORD_COUNT := SQLROWCOUNT;
+    Msg := ''Updated TEMP_ASSET_METADATA.PLUGINTEXT_NESSUS_SCAN_INFO parms('' || :DATACATEGORY || '')='' || :RECORD_COUNT;
+    If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+    COMMIT;
+
+    BEGIN TRANSACTION;
+    --
+    -- Capture plugin: Amazon Web Services EC2 Instance Metadata Enumeration (Unix).
+    -- Note: These EC2 plugins can be found in CCIC data. They are not needed for the AWS datastream since the up-stream views provide the
+    -- necessary ASSET_ID_TATTOO, AWS_ACCOUNTID. However, we are capturing the pluginttext for possible research/diagnostics.
+    --
+    UPDATE TEMP_ASSET_METADATA upd
+    set PLUGINTEXT_EC2_INSTANCE_LINUX = met.PLUGINTEXT
+    FROM (select DISTINCT TEMP_DW_ASSET_ID,PLUGINTEXT
+        from RAW_TENABLE_VUL WHERE SNAPSHOT_ID = :P_SNAPSHOT_ID and PLUGIN_ID = ''90191'') met
+    WHERE upd.TEMP_DW_ASSET_ID = met.TEMP_DW_ASSET_ID;
+
+    Msg := ''Updated TEMP_ASSET_METADATA.PLUGINTEXT_EC2_INSTANCE_LINUX'';
+    If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+    COMMIT;
+
+    BEGIN TRANSACTION;
+    --
+    -- Capture plugin: Amazon Web Services EC2 Instance Metadata Enumeration (Windows).
+    -- Note: These EC2 plugins can be found in CCIC data. They are not needed for the AWS datastream since the up-stream views provide the
+    -- necessary ASSET_ID_TATTOO, AWS_ACCOUNTID. However, we are capturing the pluginttext for possible research/diagnostics.
+    --
+    UPDATE TEMP_ASSET_METADATA upd
+    set PLUGINTEXT_EC2_INSTANCE_WINDOWS = met.PLUGINTEXT
+    FROM (select DISTINCT TEMP_DW_ASSET_ID,PLUGINTEXT
+        from RAW_TENABLE_VUL WHERE SNAPSHOT_ID = :P_SNAPSHOT_ID and PLUGIN_ID = ''90427'') met
+    WHERE upd.TEMP_DW_ASSET_ID = met.TEMP_DW_ASSET_ID;
+
+    Msg := ''Updated TEMP_ASSET_METADATA.PLUGINTEXT_EC2_INSTANCE_WINDOWS'';
+    If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+    COMMIT;
+
+    BEGIN TRANSACTION; -- 241021 CR1012
+    --
+    -- Capture plugin: AZURE Instance Metadata Enumeration (Unix).
+    --
+    UPDATE TEMP_ASSET_METADATA upd
+    set PLUGINTEXT_AZURE_INSTANCE_LINUX = met.PLUGINTEXT
+    FROM (select DISTINCT TEMP_DW_ASSET_ID,PLUGINTEXT
+        from RAW_TENABLE_VUL WHERE SNAPSHOT_ID = :P_SNAPSHOT_ID and PLUGIN_ID = ''99171'') met
+    WHERE upd.TEMP_DW_ASSET_ID = met.TEMP_DW_ASSET_ID;
+
+    Msg := ''Updated TEMP_ASSET_METADATA.PLUGINTEXT_AZURE_INSTANCE_LINUX'';
+    If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+    COMMIT;
+
+    BEGIN TRANSACTION; -- 241021 CR1012
+    --
+    -- Capture plugin: AZURE Instance Metadata Enumeration (Windows).
+    --
+    UPDATE TEMP_ASSET_METADATA upd
+    set PLUGINTEXT_AZURE_INSTANCE_WINDOWS = met.PLUGINTEXT
+    FROM (select DISTINCT TEMP_DW_ASSET_ID,PLUGINTEXT
+        from RAW_TENABLE_VUL WHERE SNAPSHOT_ID = :P_SNAPSHOT_ID and PLUGIN_ID = ''99172'') met
+    WHERE upd.TEMP_DW_ASSET_ID = met.TEMP_DW_ASSET_ID;
+
+    Msg := ''Updated TEMP_ASSET_METADATA.PLUGINTEXT_AZURE_INSTANCE_WINDOWS'';
+    If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+    COMMIT;
+    END;
+END IF;
+
+IF (:DATACATEGORY IN (:CCIC_VUL,:CCIC_VUL_MITIGATED)) THEN
+    BEGIN 
+    BEGIN TRANSACTION;
+    --
+    -- CCIC PLUGINTEXT terminates AWS ACCOUNTID with CHAR(32) (SPACE)
+    -- AWS PLUGINTEXT terminates AWS ACCOUNTID with CHAR(10) (LINEFEED)
+    -- 
+    UPDATE TEMP_ASSET_METADATA
+    set AWS_ACCOUNTID = CORE.FN_CRM_PARSE_TENABLE_AWS_ACCOUNTID(PLUGINTEXT_EC2_INSTANCE_LINUX)
+    WHERE SNAPSHOT_ID = :P_SNAPSHOT_ID and PLUGINTEXT_EC2_INSTANCE_LINUX IS NOT NULL;
+
+    RECORD_COUNT := SQLROWCOUNT;
+    Msg := ''Updated TEMP_ASSET_METADATA.PLUGINTEXT_EC2_INSTANCE_LINUX.AWS_ACCOUNTID('' || :DATACATEGORY || '')='' || :RECORD_COUNT;
+    If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+    COMMIT;
+
+    BEGIN TRANSACTION;
+    --
+    -- CCIC PLUGINTEXT terminates AWS ACCOUNTID with CHAR(32) (SPACE)
+    -- AWS PLUGINTEXT terminates AWS ACCOUNTID with CHAR(10) (LINEFEED)
+    -- 
+    UPDATE TEMP_ASSET_METADATA
+    set AWS_ACCOUNTID = CORE.FN_CRM_PARSE_TENABLE_AWS_ACCOUNTID(PLUGINTEXT_EC2_INSTANCE_WINDOWS)
+    WHERE SNAPSHOT_ID = :P_SNAPSHOT_ID and PLUGINTEXT_EC2_INSTANCE_WINDOWS IS NOT NULL and AWS_ACCOUNTID IS NULL;
+
+    RECORD_COUNT := SQLROWCOUNT;
+    Msg := ''Updated TEMP_ASSET_METADATA.PLUGINTEXT_EC2_INSTANCE_WINDOWS.AWS_ACCOUNTID('' || :DATACATEGORY || '')='' || :RECORD_COUNT;
+    If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+    COMMIT;
+
+    BEGIN TRANSACTION;
+    --
+    -- Some on-prem assets do have an ASSET_ID_TATTOO so we dont want to overlay it if it already exists.
+    -- When its null see if EC2 metadata can provide the ASSET_ID_TATTOO
+    -- 
+    UPDATE TEMP_ASSET_METADATA
+    set ASSET_ID_TATTOO = CORE.FN_CRM_PARSE_TENABLE_AWS_INSTANCEID(PLUGINTEXT_EC2_INSTANCE_LINUX)
+    WHERE SNAPSHOT_ID = :P_SNAPSHOT_ID and PLUGINTEXT_EC2_INSTANCE_LINUX IS NOT NULL and ASSET_ID_TATTOO IS NULL;
+
+    RECORD_COUNT := SQLROWCOUNT;
+    Msg := ''Updated TEMP_ASSET_METADATA.PLUGINTEXT_EC2_INSTANCE_LINUX.ASSET_ID_TATTOO('' || :DATACATEGORY || '')='' || :RECORD_COUNT;
+    If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+    COMMIT;
+
+    BEGIN TRANSACTION;
+    --
+    -- Some on-prem assets do have an ASSET_ID_TATTOO so we dont want to overlay it if it already exists.
+    -- When its null see if EC2 metadata can provide the ASSET_ID_TATTOO
+    -- 
+    UPDATE TEMP_ASSET_METADATA
+    set ASSET_ID_TATTOO = CORE.FN_CRM_PARSE_TENABLE_AWS_INSTANCEID(PLUGINTEXT_EC2_INSTANCE_WINDOWS)
+    WHERE SNAPSHOT_ID = :P_SNAPSHOT_ID and PLUGINTEXT_EC2_INSTANCE_WINDOWS IS NOT NULL and ASSET_ID_TATTOO IS NULL;
+
+    RECORD_COUNT := SQLROWCOUNT;
+    Msg := ''Updated TEMP_ASSET_METADATA.PLUGINTEXT_EC2_INSTANCE_WINDOWS.ASSET_ID_TATTOO('' || :DATACATEGORY || '')='' || :RECORD_COUNT;
+    If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+    COMMIT;
+
+    BEGIN TRANSACTION;
+    --
+    -- Capture plugin: Check for Empty FISMA Tattoo files. (Linux)
+    -- We could have parsed the Asset_ID and Primary_FISMA_ID directly from the PLUGINTEXT
+    -- but we are capturing the raw COMPLIANCE_ACTUAL_VALUE for possible research/diagnostics since things can
+    -- change in the datacenter.
+    --
+    UPDATE TEMP_ASSET_METADATA upd
+    set PLUGINTEXT_ONPREM_TAG_LINUX = NULLIF(met.COMPLIANCE_ACTUAL_VALUE,'''')
+    FROM (select DISTINCT TEMP_DW_ASSET_ID
+        ,CHARINDEX(''<cm:compliance-actual-value>The command returned :'',PLUGINTEXT,1) as StartActualValue 
+        ,CHARINDEX(''</cm:compliance-actual-value>'',PLUGINTEXT,1) as EndActualValue 
+        ,SUBSTRING(PLUGINTEXT,(StartActualValue + 50),(EndActualValue - StartActualValue - 50)) as COMPLIANCE_ACTUAL_VALUE
+        from RAW_TENABLE_VUL WHERE SNAPSHOT_ID = :P_SNAPSHOT_ID and PLUGIN_ID = ''1218405'') met
+    WHERE upd.TEMP_DW_ASSET_ID = met.TEMP_DW_ASSET_ID;
+
+    Msg := ''Updated TEMP_ASSET_METADATA.PLUGINTEXT_ONPREM_TAG_LINUX'';
+    If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+
+    --
+    -- Capture plugin: Print out FISMA registry keys. (Windows)
+    --
+    UPDATE TEMP_ASSET_METADATA upd
+    set PLUGINTEXT_ONPREM_TAG_WINDOWS = NULLIF(met.COMPLIANCE_ACTUAL_VALUE,'''')
+    FROM (select DISTINCT TEMP_DW_ASSET_ID
+        ,CHARINDEX(''<cm:compliance-actual-value>The command returned :'',PLUGINTEXT,1) as StartActualValue 
+        ,CHARINDEX(''</cm:compliance-actual-value>'',PLUGINTEXT,1) as EndActualValue 
+        ,SUBSTRING(PLUGINTEXT,(StartActualValue + 50),(EndActualValue - StartActualValue - 50)) as COMPLIANCE_ACTUAL_VALUE   
+        from RAW_TENABLE_VUL WHERE SNAPSHOT_ID = :P_SNAPSHOT_ID and PLUGIN_ID = ''1221295'') met
+    WHERE upd.TEMP_DW_ASSET_ID = met.TEMP_DW_ASSET_ID;
+
+    Msg := ''Updated TEMP_ASSET_METADATA.PLUGINTEXT_ONPREM_TAG_WINDOWS'';
+    If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+    COMMIT;
+
+    --
+    -- LINUX
+    --
+    -- 240923 CR987 add NULLIF
+    BEGIN TRANSACTION;
+    UPDATE TEMP_ASSET_METADATA upd
+    set ASSET_ID_TATTOO = 
+        NULLIF(split_part(substring(PLUGINTEXT_ONPREM_TAG_LINUX,((CHARINDEX(''/var/CMS/FISMA/Asset_ID/'',PLUGINTEXT_ONPREM_TAG_LINUX,1)) + 24),200),CHAR(10),1),'''')
+      WHERE PLUGINTEXT_ONPREM_TAG_LINUX IS NOT NULL and CHARINDEX(''/var/CMS/FISMA/Asset_ID/'',PLUGINTEXT_ONPREM_TAG_LINUX,1) > 0 and ASSET_ID_TATTOO IS NULL;
+
+    RECORD_COUNT := SQLROWCOUNT;
+    Msg := ''Updated TEMP_ASSET_METADATA.PLUGINTEXT_ONPREM_TAG_LINUX.ASSET_ID_TATTOO('' || :DATACATEGORY || '')='' || :RECORD_COUNT;
+    If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+
+    -- 240923 CR987 add NULLIF
+    UPDATE TEMP_ASSET_METADATA upd
+    set SYSTEM_ID = 
+        NULLIF(split_part(substring(PLUGINTEXT_ONPREM_TAG_LINUX,((CHARINDEX(''/var/CMS/FISMA/Primary_FISMA_ID/'',PLUGINTEXT_ONPREM_TAG_LINUX,1)) + 32),100),CHAR(10),1),'''')
+    WHERE PLUGINTEXT_ONPREM_TAG_LINUX IS NOT NULL and CHARINDEX(''/var/CMS/FISMA/Primary_FISMA_ID/'',PLUGINTEXT_ONPREM_TAG_LINUX,1) > 0 and SYSTEM_ID IS NULL;
+
+    RECORD_COUNT := SQLROWCOUNT;
+    Msg := ''Updated TEMP_ASSET_METADATA.PLUGINTEXT_ONPREM_TAG_LINUX.SYSTEM_ID('' || :DATACATEGORY || '')='' || :RECORD_COUNT;
+    If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+    COMMIT;
+
+    --
+    -- WINDOWS
+    -- 240923 CR987 add NULLIF
+    BEGIN TRANSACTION;
+    UPDATE TEMP_ASSET_METADATA upd
+    set ASSET_ID_TATTOO = 
+        NULLIF(split_part(substring(PLUGINTEXT_ONPREM_TAG_WINDOWS,(CHARINDEX(''The Asset_ID is '',PLUGINTEXT_ONPREM_TAG_WINDOWS,1) + 16),200),CHAR(10),1),'''')
+    WHERE PLUGINTEXT_ONPREM_TAG_WINDOWS IS NOT NULL and CHARINDEX(''The Asset_ID is '',PLUGINTEXT_ONPREM_TAG_WINDOWS,1) > 0 and ASSET_ID_TATTOO IS NULL;
+
+    RECORD_COUNT := SQLROWCOUNT;
+    Msg := ''Updated TEMP_ASSET_METADATA.PLUGINTEXT_ONPREM_TAG_WINDOWS.ASSET_ID_TATTOO('' || :DATACATEGORY || '')='' || :RECORD_COUNT;
+    If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+    COMMIT;
+
+    -- 240923 CR987 add NULLIF
+    UPDATE TEMP_ASSET_METADATA upd
+    set SYSTEM_ID = 
+        NULLIF(split_part(substring(PLUGINTEXT_ONPREM_TAG_WINDOWS,(CHARINDEX(''The Primary_FISMA_ID is '',PLUGINTEXT_ONPREM_TAG_WINDOWS,1) + 24),200),''<'',1),'''')
+    WHERE PLUGINTEXT_ONPREM_TAG_WINDOWS IS NOT NULL and CHARINDEX(''The Primary_FISMA_ID is '',PLUGINTEXT_ONPREM_TAG_WINDOWS,1) > 0 and SYSTEM_ID IS NULL;
+
+    RECORD_COUNT := SQLROWCOUNT;
+    Msg := ''Updated TEMP_ASSET_METADATA.PLUGINTEXT_ONPREM_TAG_WINDOWS.SYSTEM_ID('' || :DATACATEGORY || '')='' || :RECORD_COUNT;
+    If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+    COMMIT;
+    END;
+END IF;
+
+IF (:DATACATEGORY IN (:MAG_VUL,:MAG_VUL_MITIGATED)) THEN -- 241021 CR1012
+    BEGIN 
+    BEGIN TRANSACTION;
+    --
+    -- AZURE - Linux
+    -- 
+    UPDATE TEMP_ASSET_METADATA
+    set ASSET_ID_TATTOO = CORE.FN_CRM_PARSE_TENABLE_AZURE_INSTANCEID(PLUGINTEXT_AZURE_INSTANCE_LINUX)
+    WHERE SNAPSHOT_ID = :P_SNAPSHOT_ID and PLUGINTEXT_AZURE_INSTANCE_LINUX IS NOT NULL and ASSET_ID_TATTOO IS NULL;
+
+    RECORD_COUNT := SQLROWCOUNT;
+    Msg := ''Updated TEMP_ASSET_METADATA.PLUGINTEXT_AZURE_INSTANCE_LINUX.ASSET_ID_TATTOO('' || :DATACATEGORY || '')='' || :RECORD_COUNT;
+    If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+    COMMIT;
+
+    BEGIN TRANSACTION;
+    --
+    -- AZURE - Windows
+    -- 
+    UPDATE TEMP_ASSET_METADATA
+    set ASSET_ID_TATTOO = CORE.FN_CRM_PARSE_TENABLE_AZURE_INSTANCEID(PLUGINTEXT_AZURE_INSTANCE_WINDOWS)
+    WHERE SNAPSHOT_ID = :P_SNAPSHOT_ID and PLUGINTEXT_AZURE_INSTANCE_WINDOWS IS NOT NULL and ASSET_ID_TATTOO IS NULL;
+
+    RECORD_COUNT := SQLROWCOUNT;
+    Msg := ''Updated TEMP_ASSET_METADATA.PLUGINTEXT_AZURE_INSTANCE_WINDOWS.ASSET_ID_TATTOO('' || :DATACATEGORY || '')='' || :RECORD_COUNT;
+    If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+    COMMIT;
+    END;
+END IF;
+
+--
+-- ACCOUNT_NUMBER can be found in some CCIC DATA, not just AWS
+-- Some CAMP AWS Account IDs are linked to more that one system.
+-- This needs to be addressed by CAMP and Datacenter.
+-- As of 240714 these 4 account IDs are linked to more than on system: 087146460863,129336736835,333986012448,667687613718
+-- We must have only one Primary FISMA ID so we use the rank function to obtain only one SYSTEM_ID per ACCOUNT_NUMBER
+--
+BEGIN TRANSACTION;
+UPDATE TEMP_ASSET_METADATA upd
+set SYSTEM_ID = met.SYSTEM_ID
+FROM TEMP_ASSET_METADATA t
+JOIN (SELECT flw.ACCOUNT_NUMBER,flw.SYSTEM_ID
+    FROM (select rank()over(partition by ACCOUNT_NUMBER order by SYSTEM_ID) TheRank,ACCOUNT_NUMBER,SYSTEM_ID
+    from CORE.VW_AWS_CAMPDB_LOOKUP) flw where flw.TheRank = 1) met on met.ACCOUNT_NUMBER = t.AWS_ACCOUNTID   
+WHERE upd.TEMP_DW_ASSET_ID = t.TEMP_DW_ASSET_ID and t.SYSTEM_ID IS NULL; 
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''Updated TEMP_ASSET_METADATA.SYSTEM_ID (CAMP Lookup)('' || :DATACATEGORY || '')='' || :RECORD_COUNT;
+If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+COMMIT;
+
+--
+-- 240924 There is potential to use the tags found in the Software plugin if the Tattoo plugins dont return the desired data
+--
+-- Plugin 20811 - Microsoft Windows Installed Software Enumeration (credentialed check)
+--
+BEGIN TRANSACTION;
+UPDATE TEMP_ASSET_METADATA upd
+    set WINDOWS_INSTALLED_SOFTWARE_ASSET_ID = NULLIF(met.ASSET_ID,'''')
+    FROM (select DISTINCT TEMP_DW_ASSET_ID
+    ,TRIM(REPLACE(REVERSE(SPLIT_PART(REVERSE(REPLACE(REPLACE(SPLIT_PART(PLUGINTEXT,''[version Asset_ID]'',1),'':'','']''),CHR(10),'']'')),'']'',1)),CHR(10),'''')) as ASSET_ID
+    from RAW_TENABLE_VUL WHERE SNAPSHOT_ID = :P_SNAPSHOT_ID and PLUGIN_ID = ''20811''
+    and POSITION(''[version Asset_ID]'',PLUGINTEXT) > 0    ) met 
+WHERE upd.TEMP_DW_ASSET_ID = met.TEMP_DW_ASSET_ID;
+COMMIT;
+--
+-- 240924 CR-TBD
+--
+BEGIN TRANSACTION;
+UPDATE TEMP_ASSET_METADATA
+set ASSET_ID_TATTOO = WINDOWS_INSTALLED_SOFTWARE_ASSET_ID
+WHERE ASSET_ID_TATTOO IS NULL and WINDOWS_INSTALLED_SOFTWARE_ASSET_ID IS NOT NULL;
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''Updated ASSET_ID_TATTOO using WINDOWS_INSTALLED_SOFTWARE_ASSET_ID='' || :RECORD_COUNT;
+If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+COMMIT;
+--
+-- 240924 There is potential to use the tags found in the Software plugin if the Tattoo plugins dont return the desired data
+--
+-- Plugin 20811 - Microsoft Windows Installed Software Enumeration (credentialed check)
+--
+BEGIN TRANSACTION;
+UPDATE TEMP_ASSET_METADATA upd
+    set WINDOWS_INSTALLED_SOFTWARE_FISMA_ID = NULLIF(met.FISMA_ID,'''')
+    FROM (select DISTINCT TEMP_DW_ASSET_ID
+    ,TRIM(REPLACE(REVERSE(SPLIT_PART(REVERSE(REPLACE(REPLACE(SPLIT_PART(PLUGINTEXT,''[version Primary_FISMA_ID]'',1),'':'','']''),CHR(10),'']'')),'']'',1)),CHR(10),'''')) as FISMA_ID
+    from RAW_TENABLE_VUL WHERE SNAPSHOT_ID = :P_SNAPSHOT_ID and PLUGIN_ID = ''20811''
+    and POSITION(''[version Primary_FISMA_ID]'',PLUGINTEXT) > 0
+    ) met 
+WHERE upd.TEMP_DW_ASSET_ID = met.TEMP_DW_ASSET_ID;
+COMMIT;
+--
+-- 240924 CR-TBD
+--
+BEGIN TRANSACTION;
+UPDATE TEMP_ASSET_METADATA
+set SYSTEM_ID = WINDOWS_INSTALLED_SOFTWARE_FISMA_ID
+WHERE SYSTEM_ID IS NULL and WINDOWS_INSTALLED_SOFTWARE_FISMA_ID IS NOT NULL;
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''Updated SYSTEM_ID using WINDOWS_INSTALLED_SOFTWARE_FISMA_ID='' || :RECORD_COUNT;
+If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if;
+COMMIT;
+
+----------------------------------------------------------------------------------------------------------
+--
+-- GENERATE ERRORS/WARNINGS
+--
+----------------------------------------------------------------------------------------------------------
+
+BEGIN TRANSACTION;
+STEP_MSG := METADATA_PREFIX || ''DATACENTER_ID is Null'';
+UPDATE TEMP_ASSET_METADATA
+set DATA_ERROR_ARRAY = ARRAY_APPEND(DATA_ERROR_ARRAY,:STEP_MSG) 
+WHERE SNAPSHOT_ID = :P_SNAPSHOT_ID and DATACENTER_ID IS NULL;
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''DATACENTER_ID is Null('' || :DATACATEGORY || '')='' || :RECORD_COUNT;
+If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if; 
+COMMIT;
+
+BEGIN TRANSACTION;
+STEP_MSG := METADATA_PREFIX || ''DATACENTER_ID is invalid'';
+UPDATE TEMP_ASSET_METADATA upd
+set DATA_ERROR_ARRAY = ARRAY_APPEND(upd.DATA_ERROR_ARRAY,:STEP_MSG) 
+FROM TEMP_ASSET_METADATA t
+LEFT OUTER JOIN CORE.SYSTEMS s on s.SYSTEM_ID = t.DATACENTER_ID
+WHERE t.SNAPSHOT_ID = :P_SNAPSHOT_ID and t.DATACENTER_ID IS NOT NULL and s.SYSTEM_ID IS NULL and upd.TEMP_DW_ASSET_ID = t.TEMP_DW_ASSET_ID;
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''DATACENTER_ID is invalid('' || :DATACATEGORY || '')='' || :RECORD_COUNT;
+If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if; 
+COMMIT;
+
+IF (:DATACATEGORY IN (:CCIC_VUL,:CCIC_VUL_MITIGATED)) THEN
+    BEGIN 
+    BEGIN TRANSACTION;
+    STEP_MSG := METADATA_PREFIX || ''No metadata plugins available (1218405,1221295,90191,90427)'';
+    UPDATE TEMP_ASSET_METADATA upd
+    set DATA_WARNING_ARRAY = ARRAY_APPEND(upd.DATA_WARNING_ARRAY,:STEP_MSG) 
+    FROM (select TEMP_DW_ASSET_ID
+            from RAW_TENABLE_VUL
+            where snapshot_id = :P_SNAPSHOT_ID
+            and plugin_id in (''1218405'',''1221295'',''90191'',''90427'')
+            group by TEMP_DW_ASSET_ID
+            having count(1) = 0) met
+    WHERE upd.TEMP_DW_ASSET_ID = met.TEMP_DW_ASSET_ID;
+
+    RECORD_COUNT := SQLROWCOUNT;
+    Msg := ''TEMP_ASSET_METADATA.WARNING('' || :DATACATEGORY || '') '' || :STEP_MSG || ''='' || :RECORD_COUNT;
+    If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if; 
+    COMMIT;
+
+    BEGIN TRANSACTION;
+    STEP_MSG := METADATA_PREFIX || ''Plugin could not retrieve the Asset_ID tag'';
+    UPDATE TEMP_ASSET_METADATA
+    set DATA_WARNING_ARRAY = ARRAY_APPEND(DATA_WARNING_ARRAY,:STEP_MSG) 
+    WHERE ASSET_ID_TATTOO IS NULL
+    and (PLUGINTEXT_EC2_INSTANCE_LINUX IS NOT NULL or PLUGINTEXT_EC2_INSTANCE_WINDOWS IS NOT NULL
+        or PLUGINTEXT_ONPREM_TAG_LINUX IS NOT NULL or PLUGINTEXT_ONPREM_TAG_WINDOWS IS NOT NULL);
+
+    RECORD_COUNT := SQLROWCOUNT;
+    Msg := ''TEMP_ASSET_METADATA.WARNING('' || :DATACATEGORY || '') '' || :STEP_MSG || ''='' || :RECORD_COUNT;
+    If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if; 
+    COMMIT;
+
+    BEGIN TRANSACTION;
+    STEP_MSG := METADATA_PREFIX || ''Plugin could not retrieve the Primary_FISMA_ID tag'';
+    UPDATE TEMP_ASSET_METADATA
+    set DATA_WARNING_ARRAY = ARRAY_APPEND(DATA_WARNING_ARRAY,:STEP_MSG) 
+    WHERE SYSTEM_ID IS NULL
+    and (PLUGINTEXT_EC2_INSTANCE_LINUX IS NOT NULL or PLUGINTEXT_EC2_INSTANCE_WINDOWS IS NOT NULL
+        or PLUGINTEXT_ONPREM_TAG_LINUX IS NOT NULL or PLUGINTEXT_ONPREM_TAG_WINDOWS IS NOT NULL);
+
+    RECORD_COUNT := SQLROWCOUNT;
+    Msg := ''TEMP_ASSET_METADATA.WARNING('' || :DATACATEGORY || '') '' || :STEP_MSG || ''='' || :RECORD_COUNT;
+    If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if; 
+    COMMIT;
+    END;
+END IF;
+
+BEGIN TRANSACTION;
+STEP_MSG := METADATA_PREFIX || ''AWS_ACCOUNTID is not in CAMP DB'';
+UPDATE TEMP_ASSET_METADATA upd
+set DATA_WARNING_ARRAY = ARRAY_APPEND(upd.DATA_WARNING_ARRAY,:STEP_MSG) 
+FROM (select t.TEMP_DW_ASSET_ID
+        from TEMP_ASSET_METADATA t
+        LEFT OUTER JOIN CORE.VW_AWS_CAMPDB_LOOKUP flw on flw.account_number = t.AWS_ACCOUNTID
+        where t.SNAPSHOT_ID = :P_SNAPSHOT_ID
+        and t.AWS_ACCOUNTID IS NOT NULL and t.SYSTEM_ID IS NULL
+        group by t.TEMP_DW_ASSET_ID) met
+WHERE upd.TEMP_DW_ASSET_ID = met.TEMP_DW_ASSET_ID;
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''TEMP_ASSET_METADATA.WARNING('' || :DATACATEGORY || '') '' || :STEP_MSG || ''='' || :RECORD_COUNT;
+If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if; 
+COMMIT;
+
+-----------------------------------------------------------------------------------
+--
+-- Default SYSTEM_ID to DATACENTER_ID if SYSTEM_ID is not available
+--
+-----------------------------------------------------------------------------------
+IF (:DATACATEGORY IN (:CCIC_VUL,:CCIC_VUL_MITIGATED,:FORESCOUT)) THEN
+    BEGIN 
+    BEGIN TRANSACTION;
+    STEP_MSG := METADATA_PREFIX || ''SYSTEM_ID defaulted to DATACENTER_ID because no metadata plugins'';
+    UPDATE TEMP_ASSET_METADATA
+    set DATA_WARNING_ARRAY = ARRAY_APPEND(DATA_WARNING_ARRAY,:STEP_MSG) 
+    ,SYSTEM_ID = DATACENTER_ID
+    WHERE SNAPSHOT_ID = :P_SNAPSHOT_ID and SYSTEM_ID IS NULL and DATACENTER_ID IS NOT NULL
+    and PLUGINTEXT_EC2_INSTANCE_LINUX IS NULL and PLUGINTEXT_EC2_INSTANCE_WINDOWS IS NULL
+    and PLUGINTEXT_ONPREM_TAG_LINUX IS NULL and PLUGINTEXT_ONPREM_TAG_WINDOWS IS NULL;
+
+    RECORD_COUNT := SQLROWCOUNT;
+    Msg := ''TEMP_ASSET_METADATA.WARNING('' || :DATACATEGORY || '') '' || :STEP_MSG || ''='' || :RECORD_COUNT;
+    If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if; 
+    COMMIT;
+    END;
+END IF;
+ 
+BEGIN TRANSACTION;
+STEP_MSG := METADATA_PREFIX || ''SYSTEM_ID defaulted to DATACENTER_ID (Perhaps a network device)'';
+UPDATE TEMP_ASSET_METADATA
+set DATA_WARNING_ARRAY = ARRAY_APPEND(DATA_WARNING_ARRAY,:STEP_MSG) 
+,SYSTEM_ID = DATACENTER_ID
+WHERE SNAPSHOT_ID = :P_SNAPSHOT_ID and SYSTEM_ID IS NULL and DATACENTER_ID IS NOT NULL;
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''TEMP_ASSET_METADATA.WARNING('' || :DATACATEGORY || '') '' || :STEP_MSG || ''='' || :RECORD_COUNT;
+If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if; 
+COMMIT;
+
+BEGIN TRANSACTION;
+STEP_MSG := METADATA_PREFIX || ''Tag contains deprecated Dependent_FISMA_ID'';
+UPDATE TEMP_ASSET_METADATA
+set DATA_WARNING_ARRAY = ARRAY_APPEND(DATA_WARNING_ARRAY,:STEP_MSG) 
+WHERE SYSTEM_ID LIKE ''%The Dependent_FISMA_ID%'';
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''TEMP_ASSET_METADATA.WARNING('' || :DATACATEGORY || '') '' || :STEP_MSG || ''='' || :RECORD_COUNT;
+If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if; 
+COMMIT;
+
+BEGIN TRANSACTION;
+STEP_MSG := METADATA_PREFIX || ''Removed Dependent_FISMA_ID from SYSTEM_ID'';
+UPDATE TEMP_ASSET_METADATA tam
+set SYSTEM_ID = split_part(tam.system_id,CHAR(10),1)
+WHERE SYSTEM_ID LIKE ''%The Dependent_FISMA_ID%'';
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''TEMP_ASSET_METADATA.WARNING('' || :DATACATEGORY || '') '' || :STEP_MSG || ''='' || :RECORD_COUNT;
+If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if; 
+COMMIT;
+
+BEGIN TRANSACTION;
+STEP_MSG := METADATA_PREFIX || ''SYSTEM_ID is invalid'';
+UPDATE TEMP_ASSET_METADATA upd
+set DATA_ERROR_ARRAY = ARRAY_APPEND(upd.DATA_ERROR_ARRAY,:STEP_MSG) 
+FROM (select t.TEMP_DW_ASSET_ID
+        from TEMP_ASSET_METADATA t
+        LEFT OUTER JOIN CORE.SYSTEMS s on s.SYSTEM_ID = t.SYSTEM_ID
+        where t.SNAPSHOT_ID = :P_SNAPSHOT_ID and s.SYSTEM_ID IS NULL
+        group by t.TEMP_DW_ASSET_ID) met
+WHERE upd.TEMP_DW_ASSET_ID = met.TEMP_DW_ASSET_ID;
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''TEMP_ASSET_METADATA.ERROR('' || :DATACATEGORY || '') '' || :STEP_MSG || ''='' || :RECORD_COUNT;
+If (:IS_VERBOSE_MODE = 1) then CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg); end if; 
+COMMIT;
+
+CALL CORE.SP_CRM_END_PROCEDURE (:Appl);
+return ''Success'';
+
+EXCEPTION
+  when statement_error then
+    insert into CORE.ALERTLOG (APPL,CUSTOM_ERRMSG,ERRTYPE,SQLCODE,SQLERRM,SQLSTATE) VALUES(:APPL,:ExceptionMsg,''Statement_Error'',:SQLCODE,:SQLERRM,:SQLSTATE);
+    raise;
+  when CRM_logic_exception then
+    insert into CORE.ALERTLOG (APPL,CUSTOM_ERRMSG,ERRTYPE,SQLCODE,SQLERRM,SQLSTATE) VALUES(:APPL,:ExceptionMsg,''CRM_logic_exception'',:SQLCODE,:SQLERRM,:SQLSTATE);
+    raise;
+  when other then
+    insert into CORE.ALERTLOG (APPL,CUSTOM_ERRMSG,ERRTYPE,SQLCODE,SQLERRM,SQLSTATE) VALUES(:APPL,:ExceptionMsg,''Other error'',:SQLCODE,:SQLERRM,:SQLSTATE);
+    raise;
+END
+';

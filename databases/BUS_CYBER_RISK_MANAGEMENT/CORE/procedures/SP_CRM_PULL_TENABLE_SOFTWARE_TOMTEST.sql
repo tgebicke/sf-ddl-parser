@@ -1,0 +1,648 @@
+CREATE OR REPLACE PROCEDURE "SP_CRM_PULL_TENABLE_SOFTWARE_TOMTEST"("P_SNAPSHOT_ID" NUMBER(38,0))
+RETURNS VARCHAR(16777216)
+LANGUAGE SQL
+COMMENT='Stored procedure used to populate CORE.ASSET_SOFTWARE table'
+EXECUTE AS OWNER
+AS 'DECLARE
+Appl varchar := ''SP_CRM_PULL_TENABLE_SOFTWARE_TOMTEST'';
+ExceptionMsg varchar := ''Default'';
+Msg varchar;
+StartOfProcedure datetime := current_timestamp();
+CRM_logic_exception exception (-20002, ''Raised CRM_logic_exception.'');
+False boolean := 0;
+True boolean := 1;
+RECORD_COUNT NUMBER;
+DATACATEGORY VARCHAR;
+IS_FROM_AWS_FEED BOOLEAN;
+SOURCETOOL varchar := ''Tenable'';
+PLUGIN_20811_COUNT NUMBER := 0;
+PLUGIN_22869_COUNT NUMBER := 0;
+PLUGIN_45590_COUNT NUMBER := 0;
+
+-- Plugin 22869	Software Enumeration (SSH)
+-- Plugin 20811	Microsoft Windows Installed Software Enumeration (credentialed check)
+-- Plugin 45590 Common Platform Enumeration (CPE)
+
+BEGIN
+select DATACATEGORY,IS_FROM_AWS_FEED into :DATACATEGORY,:IS_FROM_AWS_FEED FROM CORE.SNAPSHOT_IDS where SNAPSHOT_ID = :P_SNAPSHOT_ID;
+Appl := :Appl || ''('' || DATACATEGORY || '')''; -- This helps to clarify which VUL we are processing
+CALL CORE.SP_CRM_START_PROCEDURE (:Appl);
+
+
+IF (:DATACATEGORY = ''AWS VUL'') THEN
+	BEGIN
+	Msg := ''WARNING: Temporary disable AWS VUL'';
+	CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+    CALL CORE.SP_CRM_END_PROCEDURE (:Appl);
+	RETURN :Msg;
+	END;
+END IF;
+
+
+/*****************************************************************************************************
+BEGIN TRANSACTION;
+INSERT INTO CORE.TEMP_ASSET_SOFTWARE
+(
+DW_ASSET_ID,
+PLUGIN_ID,
+RAW_DATEINSTALLED,
+RAW_SOFTWARE,
+RAW_VERSION,
+MAJOR,
+MINOR,
+SOFTWARENAME,
+SOURCE_TOOL,
+VERSION,
+SNAPSHOT_ID
+)
+SELECT t.DW_ASSET_ID,t.PLUGIN_ID
+,coalesce(NULLIF(split_part(t.RAW_SOFTWARE,''      '',2),''''),''NO INSTALLATION DATE'') as RAW_DATEINSTALLED
+,t.RAW_SOFTWARE
+,NULL as THEVERSION -- RAW_VERSION
+,split_part(THEVERSION,''.'',1) as THEMAJOR
+,split_part(split_part(THEVERSION,''.'',2),''.'',1) as THEMINOR
+,TRIM(split_part(t.RAW_SOFTWARE,''      '',1)) as THESOFTWARENAME
+,:SOURCETOOL as SOURCE_TOOL
+,REPLACE(THEVERSION,''NO VERSION'','''') as VERSION
+,:P_SNAPSHOT_ID
+FROM (
+select r.dw_asset_id,r.PLUGIN_ID
+,(position(('': '' || CHR(10) || CHR(10)),r.PLUGINTEXT) + 4) as STARTOFSOFTLIST
+,(position(''</plugin_output>'',r.PLUGINTEXT)) as ENDOFSOFTLIST
+,STRTOK_TO_ARRAY(SUBSTRING(r.PLUGINTEXT,STARTOFSOFTLIST,(ENDOFSOFTLIST - STARTOFSOFTLIST - 4)),CHR(10)) as SOFTARRAY
+,TRIM(f.value::string) as RAW_SOFTWARE
+FROM CORE.RAW_TENABLE_VUL r
+JOIN CORE.VW_ASSETS a on a.DW_ASSET_ID = r.DW_ASSET_ID -- We only want active assets
+join table(flatten(SOFTARRAY,outer=>true)) as f
+where r.SNAPSHOT_ID = :P_SNAPSHOT_ID 
+and r.DW_ASSET_ID IS NOT NULL 
+and r.PLUGIN_ID = ''22869'' -- Software Enumeration (SSH)
+and NULLIF(TRIM(RAW_SOFTWARE),'''') IS NOT NULL -- Must be non-null
+and RAW_SOFTWARE NOT like ''%version Primary_FISMA_ID%'' -- Exclude asset tags
+and RAW_SOFTWARE NOT like ''%version Dependent_FISMA_ID%'' -- Exclude asset tags
+and RAW_SOFTWARE NOT like ''%version Asset_ID%'' -- Exclude asset tags
+--  NOT SURE and raw_software NOT REGEXP ''.*KB[0-9]{1,7}.*'' -- Exclude Windows KB; Note: In the future these might be included
+) t
+;
+
+PLUGIN_22869_COUNT := SQLROWCOUNT;
+Msg := ''TEMP_ASSET_SOFTWARE(pluginid 22869) Written='' || :PLUGIN_22869_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+COMMIT;
+*****************************************************************************************************/
+
+
+--BEGIN TRANSACTION;
+INSERT INTO CORE.TEMP_ASSET_SOFTWARE_TOMTEST
+(
+DW_ASSET_ID,
+PLUGIN_ID,
+RAW_DATEINSTALLED,
+RAW_SOFTWARE,
+RAW_VERSION,
+MAJOR,
+MINOR,
+SOFTWARENAME,
+SOURCE_TOOL,
+VERSION,
+SNAPSHOT_ID
+)
+SELECT t.DW_ASSET_ID,t.PLUGIN_ID
+,coalesce(NULLIF(split_part(split_part(t.RAW_SOFTWARE,''[installed on '',2),'']'',1),''''),''NO INSTALLATION DATE'') as RAW_DATEINSTALLED
+,t.RAW_SOFTWARE
+,coalesce(NULLIF(split_part(split_part(t.RAW_SOFTWARE,''[version '',2),'']'',1),''''),''NO VERSION'') as THEVERSION -- RAW_VERSION
+,split_part(THEVERSION,''.'',1) as THEMAJOR
+,split_part(split_part(THEVERSION,''.'',2),''.'',1) as THEMINOR
+,TRIM(split_part(RAW_SOFTWARE,''[version '',1)) as THESOFTWARENAME
+,:SOURCETOOL as SOURCE_TOOL
+,REPLACE(THEVERSION,''NO VERSION'','''') as VERSION
+,:P_SNAPSHOT_ID
+FROM (
+select r.dw_asset_id,r.PLUGIN_ID
+,(position(('':'' || CHR(10)),r.PLUGINTEXT) + 4) as STARTOFSOFTLIST
+,(position(''</plugin_output>'',r.PLUGINTEXT)) as ENDOFSOFTLIST
+,STRTOK_TO_ARRAY(SUBSTRING(r.PLUGINTEXT,STARTOFSOFTLIST,(ENDOFSOFTLIST - STARTOFSOFTLIST - 4)),CHR(10)) as SOFTARRAY
+,TRIM(f.value::string) as RAW_SOFTWARE
+FROM CORE.RAW_TENABLE_VUL r
+JOIN CORE.VW_ASSETS a on a.DW_ASSET_ID = r.DW_ASSET_ID -- We only want active assets
+join table(flatten(SOFTARRAY,outer=>true)) as f
+where r.SNAPSHOT_ID = :P_SNAPSHOT_ID 
+and r.DW_ASSET_ID IS NOT NULL 
+and r.PLUGIN_ID = ''20811'' -- Microsoft Windows Installed Software Enumeration (credentialed check)
+and NULLIF(TRIM(RAW_SOFTWARE),'''') IS NOT NULL -- Must be non-null
+and RAW_SOFTWARE NOT like ''%version Primary_FISMA_ID%'' -- Exclude asset tags
+and RAW_SOFTWARE NOT like ''%version Dependent_FISMA_ID%'' -- Exclude asset tags
+and RAW_SOFTWARE NOT like ''%version Asset_ID%'' -- Exclude asset tags
+and raw_software NOT REGEXP ''.*KB[0-9]{1,7}.*'' -- Exclude Windows KB; Note: In the future these might be included
+) t
+;
+
+PLUGIN_20811_COUNT := SQLROWCOUNT;
+Msg := ''TEMP_ASSET_SOFTWARE(pluginid 20811) Written='' || :PLUGIN_20811_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+--COMMIT;
+
+
+--BEGIN TRANSACTION;
+INSERT INTO CORE.TEMP_ASSET_SOFTWARE_TOMTEST
+(
+DW_ASSET_ID,
+PLUGIN_ID,
+RAW_DATEINSTALLED,
+RAW_SOFTWARE,
+RAW_VERSION,
+MAJOR,
+MINOR,
+SOFTWARENAME,
+VENDOR,
+SOURCE_TOOL,
+VERSION,
+SNAPSHOT_ID
+)
+WITH CPE_LIST AS (
+    SELECT
+        RTV.DW_ASSET_ID
+        ,RTV.PLUGIN_ID
+        ,RTV.SNAPSHOT_ID
+        ,SPLIT(RTV.PLUGINTEXT, CHAR(10)) AS CPE_ARRAY
+    FROM 
+    CORE.RAW_TENABLE_VUL RTV
+    JOIN CORE.VW_ASSETS A ON A.DW_ASSET_ID = RTV.DW_ASSET_ID
+    WHERE RTV.PLUGIN_ID = ''45590'' AND RTV.SNAPSHOT_ID = :P_SNAPSHOT_ID
+    ),
+    EXPLODED AS (
+    SELECT 
+         C.DW_ASSET_ID
+        ,PLUGIN_ID
+        ,TRIM(T.value) AS CPE_STRING
+        ,SPLIT(CPE_STRING,'':'') AS CPE_ARRAY
+        ,SNAPSHOT_ID
+    FROM CPE_LIST C,
+    LATERAL FLATTEN(INPUT => C.CPE_ARRAY) t
+),
+FINAL_SPLIT AS (
+SELECT 
+     EXPLODED.*
+    ,REGEXP_SUBSTR(cpe_array[4],''\\\\b\\\\d+(\\\\.\\\\d+)*\\\\b[\\\\sA-Za-z]?'') as RAW_VERSION
+    ,split(RAW_VERSION,''.'') AS VERSION_ARRAY
+FROM EXPLODED
+)
+SELECT
+    DW_ASSET_ID,
+    PLUGIN_ID,
+    ''NO INSTALLATION DATE'' AS RAW_DATEINSTALLED,
+    CPE_STRING AS RAW_SOFTWARE,
+    RAW_VERSION,
+    VERSION_ARRAY[0]::string as MAJOR,
+    VERSION_ARRAY[1]::string as MINOR,
+    CPE_ARRAY[3]::string as SOFTWARE,
+    CPE_ARRAY[2]::string as VENDOR,
+    :SOURCETOOL AS SOURCE_TOOL,
+    RAW_VERSION AS VERSION,
+    SNAPSHOT_ID
+FROM FINAL_SPLIT
+WHERE LEFT(CPE_STRING, 5) = ''cpe:/''
+QUALIFY ROW_NUMBER() OVER (PARTITION BY DW_ASSET_ID, SOFTWARE, VERSION ORDER BY DW_ASSET_ID DESC) = 1;
+
+
+PLUGIN_45590_COUNT := SQLROWCOUNT;
+Msg := ''TEMP_ASSET_SOFTWARE(pluginid 45590) Written='' || :PLUGIN_45590_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+--COMMIT;
+
+
+--------------------------------------------------------------------------
+--
+-- TEST TO SEE IF THERE IS ANYTHING TO PROCESS, IF NOT, EXIT
+--
+--------------------------------------------------------------------------
+
+IF ((PLUGIN_20811_COUNT + PLUGIN_22869_COUNT + PLUGIN_45590_COUNT) = 0) THEN
+	BEGIN
+	Msg := ''WARNING: There is no SWAM data for this snapshot'';
+	CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+    CALL CORE.SP_CRM_END_PROCEDURE (:Appl);
+	RETURN :Msg;
+	END;
+END IF;
+
+--------------------------------------------------------------------------
+--
+-- CHECK FOR VARIOUS DATEINSTALLED FORMATS AND NORMALIZE
+--
+--------------------------------------------------------------------------
+
+--BEGIN TRANSACTION;
+-- 
+-- 9/9/99
+-- 9/9/9999
+-- 9/99/99
+-- 9/99/9999
+-- 99.99.9999
+-- 99/9/99
+-- 99/9/9999
+-- 99/99/99
+-- 99/99/9999
+-- 9999/99/
+-- 9999/99/99
+--
+UPDATE TEMP_ASSET_SOFTWARE_TOMTEST 
+set RAW_DATEINSTALLED = REPLACE(REPLACE(REGEXP_SUBSTR(RAW_DATEINSTALLED,''[0-9]{1,4}[(/|\\-|.)][0-9]{1,2}[(/|\\-|.)][0-9]{1,4}''),''/'',''-''),''.'',''-'')
+where SNAPSHOT_ID = :P_SNAPSHOT_ID and REGEXP_LIKE(RAW_DATEINSTALLED,''[0-9]{1,4}[(/|\\-|.)][0-9]{1,2}[(/|\\-|.)][0-9]{1,4}.*'');
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''REGEXP_LIKE(wide net)='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+--COMMIT;
+
+--BEGIN TRANSACTION;
+--
+-- Thu Apr 26 11:20:02 EDT 2018
+--
+UPDATE TEMP_ASSET_SOFTWARE_TOMTEST
+set RAW_DATEINSTALLED = substring(RAW_DATEINSTALLED,25,4) || ''-''
+|| case upper(substring(RAW_DATEINSTALLED,5,3))
+    WHEN ''JAN'' THEN ''01''
+    WHEN ''FEB'' THEN ''02''
+    WHEN ''MAR'' THEN ''03''
+    WHEN ''APR'' THEN ''04''
+    WHEN ''MAY'' THEN ''05''
+    WHEN ''JUN'' THEN ''06''
+    WHEN ''JUL'' THEN ''07''
+    WHEN ''AUG'' THEN ''08''
+    WHEN ''SEP'' THEN ''09'' 
+    WHEN ''OCT'' THEN ''10''
+    WHEN ''NOV'' THEN ''11''
+    WHEN ''DEC'' THEN ''12''
+End || ''-'' || substring(RAW_DATEINSTALLED,9,2) || '' '' || substring(RAW_DATEINSTALLED,12,8)
+where SNAPSHOT_ID = :P_SNAPSHOT_ID and REGEXP_LIKE(RAW_DATEINSTALLED,''[A-Za-z]{3}[ ][A-Za-z]{3}[ ][0-9]{2}[ ][0-9]{2}:[0-9]{2}:[0-9]{2}[ ][A-Za-z]{3}[ ][0-9]{4}'');
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''REGEXP_LIKE(9999-99-99 hh:mm:ss(TZ-1))='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+--COMMIT;
+
+--BEGIN TRANSACTION;
+-- Format found in Plugin 22869
+-- Fri 01 Apr 2022 01:55:38 PM CDT
+--
+UPDATE TEMP_ASSET_SOFTWARE_TOMTEST
+set RAW_DATEINSTALLED = substring(RAW_DATEINSTALLED,12,4) || ''-''
+|| case upper(substring(RAW_DATEINSTALLED,8,3))
+    WHEN ''JAN'' THEN ''01''
+    WHEN ''FEB'' THEN ''02''
+    WHEN ''MAR'' THEN ''03''
+    WHEN ''APR'' THEN ''04''
+    WHEN ''MAY'' THEN ''05''
+    WHEN ''JUN'' THEN ''06''
+    WHEN ''JUL'' THEN ''07''
+    WHEN ''AUG'' THEN ''08''
+    WHEN ''SEP'' THEN ''09'' 
+    WHEN ''OCT'' THEN ''10''
+    WHEN ''NOV'' THEN ''11''
+    WHEN ''DEC'' THEN ''12''
+End || ''-'' || substring(RAW_DATEINSTALLED,5,2) || '' '' || substring(RAW_DATEINSTALLED,17,8)
+where SNAPSHOT_ID = :P_SNAPSHOT_ID 
+and REGEXP_LIKE(RAW_DATEINSTALLED,''[A-Za-z]{3}[ ][0-9]{2}[ ][A-Za-z]{3}[ ][0-9]{4}[ ][0-9]{2}:[0-9]{2}:[0-9]{2}[ ][A-Za-z]{2}[ ][A-Za-z]{3}'');
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''REGEXP_LIKE(9999-99-99 hh:mm:ss(TZ-2))='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+--COMMIT;
+
+--BEGIN TRANSACTION;
+--
+-- Tue Feb 28 12:29:52 2023
+--
+UPDATE TEMP_ASSET_SOFTWARE_TOMTEST 
+set RAW_DATEINSTALLED = substring(RAW_DATEINSTALLED,21,4) || ''-''
+|| case upper(substring(RAW_DATEINSTALLED,5,3))
+    WHEN ''JAN'' THEN ''01''
+    WHEN ''FEB'' THEN ''02''
+    WHEN ''MAR'' THEN ''03''
+    WHEN ''APR'' THEN ''04''
+    WHEN ''MAY'' THEN ''05''
+    WHEN ''JUN'' THEN ''06''
+    WHEN ''JUL'' THEN ''07''
+    WHEN ''AUG'' THEN ''08''
+    WHEN ''SEP'' THEN ''09'' 
+    WHEN ''OCT'' THEN ''10''
+    WHEN ''NOV'' THEN ''11''
+    WHEN ''DEC'' THEN ''12''
+End || ''-'' || substring(RAW_DATEINSTALLED,9,2) || '' '' || substring(RAW_DATEINSTALLED,12,8)
+where SNAPSHOT_ID = :P_SNAPSHOT_ID and REGEXP_LIKE(RAW_DATEINSTALLED,''[A-Za-z]{3}[ ][A-Za-z]{3}[ ][0-9]{2}[ ][0-9]{2}:[0-9]{2}:[0-9]{2}[ ][0-9]{4}'');
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''REGEXP_LIKE(9999-99-99 hh:mm:ss(1)='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+--COMMIT;
+
+--BEGIN TRANSACTION;
+--
+-- Format found in Plugin 22869
+-- Sun Jun  2 08:09:28 2024
+-- 1234567890123456789012345
+--
+UPDATE TEMP_ASSET_SOFTWARE_TOMTEST 
+set RAW_DATEINSTALLED = substring(RAW_DATEINSTALLED,21,4) || ''-''
+|| case upper(substring(RAW_DATEINSTALLED,5,3))
+    WHEN ''JAN'' THEN ''01''
+    WHEN ''FEB'' THEN ''02''
+    WHEN ''MAR'' THEN ''03''
+    WHEN ''APR'' THEN ''04''
+    WHEN ''MAY'' THEN ''05''
+    WHEN ''JUN'' THEN ''06''
+    WHEN ''JUL'' THEN ''07''
+    WHEN ''AUG'' THEN ''08''
+    WHEN ''SEP'' THEN ''09'' 
+    WHEN ''OCT'' THEN ''10''
+    WHEN ''NOV'' THEN ''11''
+    WHEN ''DEC'' THEN ''12''
+End || ''-'' || TRIM(substring(RAW_DATEINSTALLED,10,1)) || '' '' || substring(RAW_DATEINSTALLED,12,8)
+where SNAPSHOT_ID = :P_SNAPSHOT_ID and REGEXP_LIKE(RAW_DATEINSTALLED,''[A-Za-z]{3}[ ][A-Za-z]{3}[ ][ ][0-9]{1}[ ][0-9]{2}:[0-9]{2}:[0-9]{2}[ ][0-9]{4}'');
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''REGEXP_LIKE(9999-99-99 hh:mm:ss(2))='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+--COMMIT;
+
+
+--BEGIN TRANSACTION;
+--
+-- Format found in Plugin 22869
+-- Sun 02 Jun 2024 03:02:53 AM
+-- Mon 08 Feb 2016 12:13:52 PM
+-- 1234567890123456789012345
+--
+UPDATE TEMP_ASSET_SOFTWARE_TOMTEST 
+set RAW_DATEINSTALLED = substring(RAW_DATEINSTALLED,12,4) || ''-''
+|| case upper(substring(RAW_DATEINSTALLED,8,3))
+    WHEN ''JAN'' THEN ''01''
+    WHEN ''FEB'' THEN ''02''
+    WHEN ''MAR'' THEN ''03''
+    WHEN ''APR'' THEN ''04''
+    WHEN ''MAY'' THEN ''05''
+    WHEN ''JUN'' THEN ''06''
+    WHEN ''JUL'' THEN ''07''
+    WHEN ''AUG'' THEN ''08''
+    WHEN ''SEP'' THEN ''09'' 
+    WHEN ''OCT'' THEN ''10''
+    WHEN ''NOV'' THEN ''11''
+    WHEN ''DEC'' THEN ''12''
+End || ''-'' || TRIM(substring(RAW_DATEINSTALLED,5,2)) || '' '' || substring(RAW_DATEINSTALLED,17,8)
+where SNAPSHOT_ID = :P_SNAPSHOT_ID and REGEXP_LIKE(RAW_DATEINSTALLED,''[A-Za-z]{3}[ ][0-9]{2}[ ][A-Za-z]{3}[ ][0-9]{4}[ ][0-9]{2}:[0-9]{2}:[0-9]{2}[ ](AM|PM)'');
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''REGEXP_LIKE(9999-99-99 hh:mm:ss(AMPM))='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+--COMMIT;
+
+--BEGIN TRANSACTION;
+--
+-- Format found in Plugin 22869
+-- Thu Sep 13 12:15:09
+-- Sun Jun  2 00:35:19
+-- 1234567890123456789012345
+--
+UPDATE TEMP_ASSET_SOFTWARE_TOMTEST 
+set RAW_DATEINSTALLED = ''2000-'' -- DEFAULT YEAR TO 2000
+|| case upper(substring(RAW_DATEINSTALLED,5,3))
+    WHEN ''JAN'' THEN ''01''
+    WHEN ''FEB'' THEN ''02''
+    WHEN ''MAR'' THEN ''03''
+    WHEN ''APR'' THEN ''04''
+    WHEN ''MAY'' THEN ''05''
+    WHEN ''JUN'' THEN ''06''
+    WHEN ''JUL'' THEN ''07''
+    WHEN ''AUG'' THEN ''08''
+    WHEN ''SEP'' THEN ''09'' 
+    WHEN ''OCT'' THEN ''10''
+    WHEN ''NOV'' THEN ''11''
+    WHEN ''DEC'' THEN ''12''
+End || ''-'' || TRIM(substring(RAW_DATEINSTALLED,9,2)) || '' '' || substring(RAW_DATEINSTALLED,12,8)
+where SNAPSHOT_ID = :P_SNAPSHOT_ID and REGEXP_LIKE(RAW_DATEINSTALLED,''[A-Za-z]{3}[ ][A-Za-z]{3}[ ]([0-9]{2}|[ ][0-9]{1})[ ][0-9]{2}:[0-9]{2}:[0-9]{2}'');
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''REGEXP_LIKE(9999-99-99 hh:mm:ss(NoYear))='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+--COMMIT;
+
+--BEGIN TRANSACTION;
+--
+-- 2012/11/
+-- Add 1st day of month
+--
+UPDATE TEMP_ASSET_SOFTWARE_TOMTEST 
+set RAW_DATEINSTALLED = REPLACE(REGEXP_SUBSTR(RAW_DATEINSTALLED,''[0-9]{4}/[0-9]{2}/'') || ''01'',''/'',''-'')
+where SNAPSHOT_ID = :P_SNAPSHOT_ID and REGEXP_LIKE(RAW_DATEINSTALLED,''[0-9]{4}/[0-9]{2}/'');
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''REGEXP_LIKE(9999/99/)='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+--COMMIT;
+
+/*
+BEGIN TRANSACTION;
+UPDATE TEMP_ASSET_SOFTWARE
+set RAW_DATEINSTALLED = ''LEFTOVER:'' || NULLIF(TRIM(REPLACE(RAW_DATEINSTALLED,'']'','''')),'''')
+where RAW_SOFTWARE like ''%[installed on%''
+and RAW_DATEINSTALLED IS NULL;
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''Windows InstalledDate leftovers='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+COMMIT;
+*/
+
+
+--
+-- CLEAN AND NORMALIZE RAW_DATEINSTALLED FOR CONVERTION TO TIMESTAMP_LTZ
+--
+
+--BEGIN TRANSACTION;
+--
+-- 99-99-9999 to 9999-99-99
+--
+UPDATE TEMP_ASSET_SOFTWARE_TOMTEST 
+set RAW_DATEINSTALLED = right(RAW_DATEINSTALLED,4) || ''-'' || substring(RAW_DATEINSTALLED,1,LEN(RAW_DATEINSTALLED) - 5)
+where SNAPSHOT_ID = :P_SNAPSHOT_ID and REGEXP_LIKE(RAW_DATEINSTALLED,''[0-9]{1,2}[-][0-9]{1,2}[-][0-9]{4}'');
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''Reverse year='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+--COMMIT;
+
+--BEGIN TRANSACTION;
+--
+-- 99-99-20 to 2020-99-99
+--
+UPDATE TEMP_ASSET_SOFTWARE_TOMTEST 
+set RAW_DATEINSTALLED = ''2020-'' || substring(RAW_DATEINSTALLED,1,LEN(RAW_DATEINSTALLED) - 3)
+where SNAPSHOT_ID = :P_SNAPSHOT_ID and REGEXP_LIKE(RAW_DATEINSTALLED,''[0-9]{1,2}[-][0-9]{1,2}[-]20'');
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''Year(20)='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+--COMMIT;
+
+select count(1) INTO :RECORD_COUNT FROM TEMP_ASSET_SOFTWARE WHERE SNAPSHOT_ID = :P_SNAPSHOT_ID and NULLIF(RAW_DATEINSTALLED,'''') IS NULL;
+Msg := ''Windows InstalledDate TOBE RESOLVED='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+
+
+--BEGIN TRANSACTION;
+--
+-- Convert RAW_DATEINSTALLED to actual datetime column DATEINSTALLED
+--
+UPDATE TEMP_ASSET_SOFTWARE_TOMTEST
+set DATEINSTALLED = RAW_DATEINSTALLED::datetime
+where SNAPSHOT_ID = :P_SNAPSHOT_ID and TRY_TO_DATE(SUBSTRING(RAW_DATEINSTALLED,1,10),''YYYY-MM-DD'') IS NOT NULL;
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''ActualDatetime='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+--COMMIT;
+
+
+/************************************
+BEGIN TRANSACTION;
+--
+-- Confirmed future dates found in data
+-- 2040/12/19
+--
+UPDATE TEMP_ASSET_SOFTWARE
+set RAW_DATEINSTALLED = NULL
+where RAW_DATEINSTALLED IS NOT NULL
+and (RAW_DATEINSTALLED = '''' -- Empty string
+or RAW_DATEINSTALLED::DATE > CURRENT_DATE());
+
+RECORD_COUNT := SQLROWCOUNT;
+Msg := ''Future dateinstalled set to null='' || :RECORD_COUNT;
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+COMMIT;
+************************************/
+
+
+--BEGIN TRANSACTION;
+UPDATE TEMP_ASSET_SOFTWARE_TOMTEST 
+set VENDOR = ''Citrix''
+where SNAPSHOT_ID = :P_SNAPSHOT_ID and UPPER(SOFTWARENAME) LIKE ''%CITRIX%'';
+
+UPDATE TEMP_ASSET_SOFTWARE_TOMTEST 
+set VENDOR = ''Cisco''
+where SNAPSHOT_ID = :P_SNAPSHOT_ID and UPPER(SOFTWARENAME) LIKE ''%CISCO%'';
+
+UPDATE TEMP_ASSET_SOFTWARE_TOMTEST 
+set VENDOR = ''Microsoft''
+where SNAPSHOT_ID = :P_SNAPSHOT_ID and UPPER(SOFTWARENAME) LIKE ''%MICROSOFT%'';
+
+Msg := ''Vendor has been set'';
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+--COMMIT;
+
+--------------------------------------------------------------------------
+--
+-- INSERT/UPDATE CORE.ASSET_SOFTWARE USING CORE.TEMP_ASSET_SOFTWARE
+--
+--------------------------------------------------------------------------
+
+--BEGIN TRANSACTION;
+MERGE INTO CORE.ASSET_SOFTWARE_TOMTEST as target
+USING 
+(SELECT 
+    MAX(S.DATEINSTALLED) as DATEINSTALLED,
+    S.DW_ASSET_ID,
+    S.MAJOR,
+    S.MINOR,
+    S.SOFTWARENAME,
+    S.SOURCE_TOOL,
+    ''TBD'' as SWAM_CATEGORY,
+    ''TBD'' as SWAM_SUBCATEGORY,
+    S.VENDOR,
+    S.VERSION,
+    S.PLUGIN_ID AS SOURCETOOL_ENHANCEMENT,
+    CASE WHEN SM.SOFTWARE_ID IS NOT NULL AND SM.SOFTWARE_ID > 0 THEN 
+        SM.SOFTWARE_ID 
+    ELSE 
+        -1 
+    END AS SOFTWARE_NAME_ID
+    FROM CORE.TEMP_ASSET_SOFTWARE_TOMTEST S
+    LEFT JOIN SANDBOX.SOFTWARE_NAME_MASTER SM ON SANDBOX.GET_SOFTWARE_KEY(S.SOFTWARENAME) = SM.SOFTWARE_KEY
+    WHERE SNAPSHOT_ID = :P_SNAPSHOT_ID
+    GROUP BY DW_ASSET_ID,MAJOR,MINOR,SOFTWARENAME,SOURCE_TOOL,SWAM_CATEGORY,SWAM_SUBCATEGORY,VENDOR,VERSION, SOURCETOOL_ENHANCEMENT, SM.SOFTWARE_ID
+) as src 
+
+ON (src.DW_ASSET_ID = target.DW_ASSET_ID and src.SOFTWARENAME = target.SOFTWARENAME and src.VERSION = target.VERSION)
+
+WHEN MATCHED THEN UPDATE SET 
+    target.LASTSEEN = CURRENT_TIMESTAMP(),
+    target.SOURCETOOL_ENHANCEMENT = src.SOURCETOOL_ENHANCEMENT,
+    target.SOFTWARE_NAME_ID = src.SOFTWARE_NAME_ID
+
+WHEN NOT MATCHED THEN INSERT (
+    DATEINSTALLED
+    ,DW_ASSET_ID
+    ,FIRSTSEEN
+    ,INSERT_DATE
+    ,LASTSEEN
+    ,MAJOR
+    ,MINOR
+    ,SOFTWARENAME
+    ,SOURCE_TOOL
+    ,SWAM_CATEGORY
+    ,SWAM_SUBCATEGORY
+    ,VENDOR
+    ,VERSION
+    ,SOURCETOOL_ENHANCEMENT
+    ,SOFTWARE_NAME_ID
+)
+VALUES (
+    src.DATEINSTALLED
+    ,src.DW_ASSET_ID
+    ,CURRENT_TIMESTAMP() -- FIRSTSEEN
+    ,CURRENT_TIMESTAMP() -- INSERT_DATE
+    ,CURRENT_TIMESTAMP() -- LASTSEEN
+    ,src.MAJOR
+    ,src.MINOR
+    ,src.SOFTWARENAME
+    ,src.SOURCE_TOOL
+    ,src.SWAM_CATEGORY
+    ,src.SWAM_SUBCATEGORY
+    ,src.VENDOR
+    ,src.VERSION
+    ,src.SOURCETOOL_ENHANCEMENT
+    ,src.SOFTWARE_NAME_ID
+);
+
+Msg := ''CORE.ASSET_SOFTWARE updated'';
+CALL CORE.SP_CRM_WRITE_MSGLOG (:Appl,:Msg);
+--COMMIT;
+
+
+--BEGIN TRANSACTION;
+--
+-- Update ASSET LASTSEEN_SWAM and SOURCE_TOOL_SWAM
+--
+UPDATE ASSET_TOMTEST upd
+set LASTSEEN_SWAM = sft.LASTSEEN
+,SOURCE_TOOL_SWAM = :SOURCETOOL
+FROM ASSET_TOMTEST a
+JOIN (select DW_ASSET_ID,MAX(LASTSEEN) as LASTSEEN
+    from ASSET_SOFTWARE_TOMTEST group by DW_ASSET_ID) sft on sft.DW_ASSET_ID = a.DW_ASSET_ID
+WHERE upd.DW_ASSET_ID = a.DW_ASSET_ID;
+--COMMIT;
+
+CALL CORE.SP_CRM_END_PROCEDURE (:Appl);
+return ''Success'';
+
+EXCEPTION
+  when statement_error then
+    insert into CORE.ALERTLOG (APPL,CUSTOM_ERRMSG,ERRTYPE,SQLCODE,SQLERRM,SQLSTATE) VALUES(:APPL,:ExceptionMsg,''Statement_Error'',:SQLCODE,:SQLERRM,:SQLSTATE);
+    raise;
+  when CRM_logic_exception then
+    insert into CORE.ALERTLOG (APPL,CUSTOM_ERRMSG,ERRTYPE,SQLCODE,SQLERRM,SQLSTATE) VALUES(:APPL,:ExceptionMsg,''CRM_logic_exception'',:SQLCODE,:SQLERRM,:SQLSTATE);
+    raise;
+  when other then
+    insert into CORE.ALERTLOG (APPL,CUSTOM_ERRMSG,ERRTYPE,SQLCODE,SQLERRM,SQLSTATE) VALUES(:APPL,:ExceptionMsg,''Other error'',:SQLCODE,:SQLERRM,:SQLSTATE);
+    raise;
+END';
