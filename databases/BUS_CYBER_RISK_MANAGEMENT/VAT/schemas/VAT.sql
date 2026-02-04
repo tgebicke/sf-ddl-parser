@@ -1,1 +1,0 @@
-create or replace schema VAT COMMENT='A new Tableau dashboard is expected to replace the views so this is not currently used.';

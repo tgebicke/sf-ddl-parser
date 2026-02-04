@@ -1,7 +1,0 @@
-CREATE OR REPLACE FUNCTION "FN_CRM_GET_MITIGATIONSTATUS_OPEN"()
-RETURNS VARCHAR(16777216)
-LANGUAGE SQL
-COMMENT='Return string indicating mitigation status is open'
-AS '
-''open''
-';

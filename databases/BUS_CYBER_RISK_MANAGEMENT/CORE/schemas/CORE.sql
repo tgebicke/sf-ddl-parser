@@ -1,1 +1,0 @@
-create or replace schema CORE COMMENT='Main schema for SDW/CRM';

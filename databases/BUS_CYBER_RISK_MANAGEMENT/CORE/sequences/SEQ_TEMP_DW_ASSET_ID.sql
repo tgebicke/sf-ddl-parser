@@ -1,1 +1,0 @@
-create or replace sequence SEQ_TEMP_DW_ASSET_ID start with 1 increment by 1 order;

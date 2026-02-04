@@ -1,1 +1,0 @@
-create or replace schema FISMA COMMENT='Repository for views and other objects necessary to generate FISMA/Audit reporting';

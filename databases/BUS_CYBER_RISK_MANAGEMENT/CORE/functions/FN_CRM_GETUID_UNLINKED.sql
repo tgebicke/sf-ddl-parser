@@ -1,7 +1,0 @@
-CREATE OR REPLACE FUNCTION "FN_CRM_GETUID_UNLINKED"()
-RETURNS VARCHAR(16777216)
-LANGUAGE SQL
-COMMENT='Return a dummy system_id \"0000000-UnlinkedTrackID-0000000\" that does not have Tracking ID'
-AS '
-''0000000-UnlinkedTrackID-0000000''
-';

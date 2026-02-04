@@ -1,1 +1,0 @@
-create or replace schema CEDE COMMENT='Contains views/tables needed by Reporting Team/Tableau';

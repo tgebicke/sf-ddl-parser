@@ -76,6 +76,7 @@ venv.bak/
 config.json
 *.p8
 *.pem
+/run_test
 
 # Poetry
 poetry.lock

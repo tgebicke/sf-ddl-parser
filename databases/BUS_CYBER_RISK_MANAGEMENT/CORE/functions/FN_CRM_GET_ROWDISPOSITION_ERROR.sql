@@ -1,7 +1,0 @@
-CREATE OR REPLACE FUNCTION "FN_CRM_GET_ROWDISPOSITION_ERROR"()
-RETURNS VARCHAR(16777216)
-LANGUAGE SQL
-COMMENT='Return string indicating record has an error'
-AS '
-''Error''
-';

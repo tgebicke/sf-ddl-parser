@@ -1,7 +1,0 @@
-create or replace TABLE FISMA_DEVICE_TYPES (
-	FISMA_DEVICE_ID NUMBER(38,0) NOT NULL autoincrement start 1 increment 1 order,
-	DEVICE_ROLE VARCHAR(16777216),
-	DEVICE_TYPE VARCHAR(16777216),
-	primary key (FISMA_DEVICE_ID)
-)COMMENT='Source: FY24_FISMA_CIO_Metrics_v1.0_FINAL_1'
-;

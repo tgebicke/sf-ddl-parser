@@ -1,7 +1,0 @@
-CREATE OR REPLACE FUNCTION "FN_CRM_GETUID_UNASSIGNED_OPLOC"()
-RETURNS VARCHAR(16777216)
-LANGUAGE SQL
-COMMENT='Return dummy system id \"0000000-UnAssigned-OpLoc-0000000\" representing UnAssigned-Operation Location'
-AS '
-''0000000-UnAssigned-OpLoc-0000000''
-';

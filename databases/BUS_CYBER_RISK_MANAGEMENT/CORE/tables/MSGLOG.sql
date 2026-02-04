@@ -1,9 +1,0 @@
-create or replace TABLE MSGLOG (
-	ID NUMBER(38,0) NOT NULL autoincrement start 1 increment 1 order,
-	APPL VARCHAR(16777216) DEFAULT 'Default',
-	ELAPSED_MILLISECONDS NUMBER(38,0) DEFAULT 0,
-	INSERT_DATE TIMESTAMP_LTZ(9) DEFAULT CURRENT_TIMESTAMP(),
-	MSG VARCHAR(16777216),
-	primary key (ID)
-)COMMENT='CRM tasks steps/execution messages\t'
-;

@@ -1,1 +1,0 @@
-create or replace schema DBA COMMENT='Schema for database utilities and health checks. All objects subject to change as needed. DO NOT EMBED THESE OBJECTS IN OTHER VIEWS.';
