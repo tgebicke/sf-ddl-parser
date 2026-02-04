@@ -7,7 +7,7 @@ A CLI tool that pulls DDL from Snowflake and parses it into
 an organized folder structure mirroring the Snowflake UI.
 
 Usage:
-    sfddl                          # Pull and parse with default config.json
+    sfddl                          # Pull and parse with default sfddl.json
     sfddl --config other.json      # Use custom config file
     sfddl --no-pull                # Skip Snowflake, parse existing DDL file
     sfddl --force-parse            # Force parse even if no changes detected
@@ -43,8 +43,8 @@ def main():
     )
     parser.add_argument(
         '--config',
-        default='config.json',
-        help='Path to configuration file (default: config.json)'
+        default='sfddl.json',
+        help='Path to configuration file (default: sfddl.json)'
     )
     parser.add_argument(
         '--no-pull',

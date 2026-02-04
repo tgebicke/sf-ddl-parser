@@ -33,7 +33,7 @@ pip install -e .
 
 ## Configuration
 
-Create a `config.json` file in your working directory:
+Create a `sfddl.json` file in your working directory (e.g. copy from `sfddl.sample.json`):
 
 ```json
 {
@@ -91,7 +91,7 @@ sfddl --config my_config.json
 
 | Flag | Description |
 |------|-------------|
-| `--config FILE` | Path to configuration file (default: `config.json`) |
+| `--config FILE` | Path to configuration file (default: `sfddl.json`) |
 | `--no-pull` | Skip pulling from Snowflake, use existing DDL file |
 | `--force-parse` | Force parsing even if DDL hasn't changed |
 
@@ -240,7 +240,7 @@ Note: Copy the public key contents without the `-----BEGIN PUBLIC KEY-----` and 
 
 ## Security Note
 
-Keep your `config.json` file secure and add it to `.gitignore` to avoid committing credentials to version control.
+Keep your `sfddl.json` file secure and add it to `.gitignore` to avoid committing credentials to version control.
 
 ## License
 

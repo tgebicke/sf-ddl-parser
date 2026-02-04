@@ -43,7 +43,7 @@ except ImportError:
     default_backend = None
     serialization = None
 
-def load_config(config_file: str = "config.json") -> Dict[str, Any]:
+def load_config(config_file: str = "sfddl.json") -> Dict[str, Any]:
     """Load Snowflake connection configuration from JSON file."""
     config_path = Path(config_file)
     
@@ -342,8 +342,8 @@ def _standalone_main():
     )
     parser.add_argument(
         '--config', 
-        default='snowflake_config.json',
-        help='Path to Snowflake configuration file (default: snowflake_config.json)'
+        default='sfddl.json',
+        help='Path to configuration file (default: sfddl.json)'
     )
     parser.add_argument(
         '--database',

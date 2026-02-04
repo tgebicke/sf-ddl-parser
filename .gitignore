@@ -73,7 +73,7 @@ venv.bak/
 .DS_Store
 
 # Project specific - credentials and config
-config.json
+sfddl.json
 *.p8
 *.pem
 /run_test
