@@ -306,6 +306,74 @@ def get_object_name(object_definition):
     return None
 
 
+def _sanitize_filename_basename(basename: str) -> str:
+    """Replace characters invalid in filenames (Windows) with underscore."""
+    invalid = r'\/:*?"<>|'
+    for ch in invalid:
+        basename = basename.replace(ch, '_')
+    return basename
+
+
+def extract_argument_signature(object_content: str) -> str | None:
+    """
+    Extract the argument list (signature) from a procedure or function DDL.
+    Returns the normalized inner text between the first ( and its matching ),
+    or None if not a procedure/function or matching paren not found.
+    """
+    content = object_content.strip()
+    if not re.match(
+        r'CREATE\s+(?:OR\s+REPLACE\s+)?(?:SECURE\s+)?(?:PROCEDURE|FUNCTION)\s+',
+        content,
+        re.IGNORECASE,
+    ):
+        return None
+    # Find the first '(' that starts the argument list (after the object name).
+    # Pattern: PROCEDURE|FUNCTION, then optional SECURE, then name (quoted or not), then optional ws, then (
+    match = re.search(
+        r'(?:PROCEDURE|FUNCTION)\s+(?:"[^"]*"|[A-Za-z0-9_]+)\s*(\()',
+        content,
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+    open_pos = match.start(1)
+    depth = 1
+    i = open_pos + 1
+    while i < len(content) and depth > 0:
+        if content[i] == '(':
+            depth += 1
+        elif content[i] == ')':
+            depth -= 1
+        i += 1
+    if depth != 0:
+        return None
+    close_pos = i - 1
+    inner = content[open_pos + 1 : close_pos]
+    # Normalize: collapse whitespace, strip
+    normalized = ' '.join(inner.split()).strip()
+    # Replace filename-unsafe characters
+    normalized = _sanitize_filename_basename(normalized)
+    return normalized
+
+
+def get_file_basename_for_object(object_content: str, object_type: str | None) -> str | None:
+    """
+    Return the file basename (no .sql) for this object. For procedures and functions,
+    includes the argument signature so overloads get distinct files.
+    """
+    name = get_object_name(object_content)
+    if name is None:
+        return None
+    if object_type in ('procedures', 'secure_procedures', 'functions', 'secure_functions'):
+        sig = extract_argument_signature(object_content)
+        if sig is not None:
+            basename = f"{name}({sig})"
+        else:
+            basename = f"{name}()"
+        return _sanitize_filename_basename(basename)
+    return _sanitize_filename_basename(name)
+
+
 def parse_sql_by_database_and_schema(sql_content, database_name_override=None, output_dir_override=None, include_schemas=None, exclude_schemas=None):
     """Parse SQL content and organize objects by database and schema.
     
@@ -404,12 +472,12 @@ def parse_sql_by_database_and_schema(sql_content, database_name_override=None, o
             # Extract the object content
             object_content = schema_content[start_pos:end_pos].strip()
             
-            # Determine object type and name
+            # Determine object type and file basename (name + signature for procedures/functions)
             first_line = object_content.split('\n')[0]
             object_type = get_object_type(first_line)
-            object_name = get_object_name(first_line)
+            file_basename = get_file_basename_for_object(object_content, object_type)
             
-            if object_name and object_type:
+            if file_basename and object_type:
                 # Create directory structure
                 database_dir = base_dir / database_name
                 schema_dir = database_dir / schema_name
@@ -420,14 +488,14 @@ def parse_sql_by_database_and_schema(sql_content, database_name_override=None, o
                 object_content_with_comments = restore_comments(object_content, comments_dict)
                 
                 # Write object to file
-                file_path = type_dir / f"{object_name}.sql"
+                file_path = type_dir / f"{file_basename}.sql"
                 try:
                     with open(file_path, 'w', encoding='utf-8') as f:
                         f.write(object_content_with_comments)
-                    print(f"    ✓ Saved: {object_type}/{object_name}.sql")
+                    print(f"    ✓ Saved: {object_type}/{file_basename}.sql")
                     expected_paths.add(file_path.resolve())
                 except Exception as e:
-                    print(f"    ✗ Error saving {object_name}: {str(e)}")
+                    print(f"    ✗ Error saving {file_basename}: {str(e)}")
                     continue
                 
                 # Track object count
