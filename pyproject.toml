@@ -1,6 +1,6 @@
 [project]
 name = "snowflake-ddl-organizer"
-version = "0.1.0"
+version = "0.1.1"
 description = "Extract and organize Snowflake DDL into a clean folder structure"
 authors = [{ name = "Tom Gebicke", email = "tom.gebicke@datacoders.io" }]
 readme = "README.md"
