@@ -178,6 +178,11 @@ def get_object_type(first_line):
         return 'triggers'
     elif 'INDEX' in first_line:
         return 'indexes'
+    elif 'FILE FORMAT' in first_line:
+        if 'SECURE' in first_line:
+            return 'secure_file_formats'
+        else:
+            return 'file_formats'
     elif 'TYPE' in first_line:
         if 'SECURE' in first_line:
             return 'secure_types'
@@ -242,11 +247,6 @@ def get_object_type(first_line):
             return 'roles'
     elif 'GRANT' in first_line:
         return 'grants'
-    elif 'FILE FORMAT' in first_line:
-        if 'SECURE' in first_line:
-            return 'secure_file_formats'
-        else:
-            return 'file_formats'
     elif ' SCHEMA ' in first_line:
         return 'schemas'
     elif ' DATABASE ' in first_line:

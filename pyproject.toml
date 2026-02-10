@@ -21,6 +21,9 @@ classifiers = [
     "Topic :: Software Development :: Code Generators",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=7.0.0"]
+
 [project.urls]
 Homepage = "https://github.com/YOUR_USERNAME/snowflake-ddl-organizer"
 Repository = "https://github.com/YOUR_USERNAME/snowflake-ddl-organizer"
@@ -35,3 +38,11 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 packages = [{ include = "sfddl", from = "src" }]
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.0.0"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
