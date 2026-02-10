@@ -25,9 +25,9 @@ classifiers = [
 dev = ["pytest>=7.0.0"]
 
 [project.urls]
-Homepage = "https://github.com/YOUR_USERNAME/snowflake-ddl-organizer"
-Repository = "https://github.com/YOUR_USERNAME/snowflake-ddl-organizer"
-Issues = "https://github.com/YOUR_USERNAME/snowflake-ddl-organizer/issues"
+Homepage = "https://github.com/tgebicke/snowflake-ddl-organizer"
+Repository = "https://github.com/tgebicke/snowflake-ddl-organizer"
+Issues = "https://github.com/tgebicke/snowflake-ddl-organizer/issues"
 
 [project.scripts]
 sfddl = "sfddl.cli:main"
