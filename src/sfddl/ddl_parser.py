@@ -314,6 +314,48 @@ def _sanitize_filename_basename(basename: str) -> str:
     return basename
 
 
+def _signature_to_types_only(signature_str: str) -> str:
+    """
+    Reduce a procedure/function argument signature to comma-separated type names only.
+    Strips parameter names and precision/scale (e.g. NUMBER(38,0) -> NUMBER).
+    """
+    if not signature_str or not signature_str.strip():
+        return ""
+    # Split by comma only when not inside parentheses
+    segments = []
+    start = 0
+    depth = 0
+    for i, ch in enumerate(signature_str):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            segments.append(signature_str[start:i].strip())
+            start = i + 1
+    segments.append(signature_str[start:].strip())
+
+    types = []
+    # Strip optional leading IN/OUT/INOUT (procedure style)
+    in_out_re = re.compile(r"^(?:IN|OUT|INOUT)\s+", re.IGNORECASE)
+    # Strip trailing (p) or (p,s) from type
+    precision_re = re.compile(r"\s*\(\s*\d+\s*(?:,\s*\d+)?\s*\)\s*$")
+
+    for seg in segments:
+        if not seg:
+            continue
+        seg = in_out_re.sub("", seg, count=1).strip()
+        parts = seg.split(None, 1)  # first token = param name, rest = type
+        if len(parts) < 2:
+            type_spec = parts[0] if parts else ""
+        else:
+            type_spec = parts[1]
+        type_spec = precision_re.sub("", type_spec).strip()
+        if type_spec:
+            types.append(type_spec.upper())
+    return ",".join(types)
+
+
 def extract_argument_signature(object_content: str) -> str | None:
     """
     Extract the argument list (signature) from a procedure or function DDL.
@@ -367,7 +409,8 @@ def get_file_basename_for_object(object_content: str, object_type: str | None) -
     if object_type in ('procedures', 'secure_procedures', 'functions', 'secure_functions'):
         sig = extract_argument_signature(object_content)
         if sig is not None:
-            basename = f"{name}({sig})"
+            types_only = _signature_to_types_only(sig)
+            basename = f"{name}({types_only})" if types_only else f"{name}()"
         else:
             basename = f"{name}()"
         return _sanitize_filename_basename(basename)

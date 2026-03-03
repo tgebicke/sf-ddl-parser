@@ -141,12 +141,12 @@ def test_get_file_basename_for_object_procedure_no_args():
 
 def test_get_file_basename_for_object_procedure_with_args():
     ddl = 'CREATE PROCEDURE "MY_PROC"(x varchar, y number) RETURNS VARCHAR LANGUAGE SQL AS \'x\';'
-    assert get_file_basename_for_object(ddl, "procedures") == "MY_PROC(x varchar, y number)"
+    assert get_file_basename_for_object(ddl, "procedures") == "MY_PROC(VARCHAR,NUMBER)"
 
 
 def test_get_file_basename_for_object_function():
     ddl = "CREATE FUNCTION MY_FUNC(a number) RETURNS number LANGUAGE SQL AS 'a+1';"
-    assert get_file_basename_for_object(ddl, "functions") == "MY_FUNC(a number)"
+    assert get_file_basename_for_object(ddl, "functions") == "MY_FUNC(NUMBER)"
 
 
 def test_get_file_basename_for_object_table():
@@ -157,6 +157,23 @@ def test_get_file_basename_for_object_table():
 def test_get_file_basename_for_object_view():
     ddl = "CREATE VIEW V1 AS SELECT 1"
     assert get_file_basename_for_object(ddl, "views") == "V1"
+
+
+def test_get_file_basename_for_object_procedure_types_only_with_precision():
+    """Filename uses type names only; NUMBER(38,0) becomes NUMBER."""
+    ddl = """CREATE PROCEDURE "SP_CRM_EXEC_MCRRPROC"(
+        _MONTH_ NUMBER(38,0),
+        _YEAR_ NUMBER(38,0),
+        _PREMONTH_ NUMBER(38,0),
+        _PREYEAR_ NUMBER(38,0)
+    ) RETURNS VARCHAR LANGUAGE SQL AS 'BEGIN NULL; END';"""
+    assert get_file_basename_for_object(ddl, "procedures") == "SP_CRM_EXEC_MCRRPROC(NUMBER,NUMBER,NUMBER,NUMBER)"
+
+
+def test_get_file_basename_for_object_procedure_varchar_precision():
+    """VARCHAR(255) in filename becomes VARCHAR."""
+    ddl = 'CREATE PROCEDURE "MY_PROC"(p VARCHAR(255), q NUMBER(10,2)) RETURNS VARCHAR LANGUAGE SQL AS \'x\';'
+    assert get_file_basename_for_object(ddl, "procedures") == "MY_PROC(VARCHAR,NUMBER)"
 
 
 # --- get_database_name ---
@@ -265,13 +282,12 @@ def test_parse_sql_by_database_and_schema_creates_structure(minimal_ddl, tmp_pat
     assert len(proc_files) >= 1
     names = [f.stem for f in proc_files]
     assert "MY_PROC()" in names
-    assert any("MY_PROC(" in n and "varchar" in n.lower() for n in names)
+    assert any("MY_PROC(" in n and "VARCHAR" in n and "NUMBER" in n for n in names)
 
     func_dir = foo_dir / "functions"
     func_files = list(func_dir.glob("*.sql"))
     assert len(func_files) == 1
-    assert "MY_FUNC" in func_files[0].stem
-    assert "a number" in func_files[0].stem or "number" in func_files[0].read_text()
+    assert func_files[0].stem == "MY_FUNC(NUMBER)"
 
 
 def test_parse_sql_by_database_and_schema_exclude_schemas(minimal_ddl, tmp_path, capsys):
