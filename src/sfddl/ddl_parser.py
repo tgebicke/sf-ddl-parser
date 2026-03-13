@@ -4,6 +4,16 @@ import argparse
 import hashlib
 from pathlib import Path
 
+
+def _normalize_blank_lines(content: str) -> str:
+    lines = content.split('\n')
+    blank = sum(1 for l in lines if not l.strip())
+    non_blank = len(lines) - blank
+    if non_blank > 0 and blank >= non_blank:
+        content = re.sub(r'\n{2,}', '\n', content)
+    return content
+
+
 def prune_removed_files(database_dir: Path, expected_paths: set[Path], dry_run: bool = False) -> dict:
     """
     Remove files under `database_dir` that are not present in `expected_paths`.
@@ -534,7 +544,7 @@ def parse_sql_by_database_and_schema(sql_content, database_name_override=None, o
                 file_path = type_dir / f"{file_basename}.sql"
                 try:
                     with open(file_path, 'w', encoding='utf-8') as f:
-                        f.write(object_content_with_comments)
+                        f.write(_normalize_blank_lines(object_content_with_comments))
                     print(f"    ✓ Saved: {object_type}/{file_basename}.sql")
                     expected_paths.add(file_path.resolve())
                 except Exception as e:

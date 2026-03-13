@@ -91,3 +91,6 @@ poetry.lock
 *.tmp
 *.temp
 *.bak
+#AI
+*.claude
+CLAUDE.md

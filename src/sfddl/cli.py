@@ -58,7 +58,6 @@ def main():
         dest='force_parse',
         help='Force parsing even if DDL has not changed'
     )
-    
     args = parser.parse_args()
     
     print("=" * 60)
@@ -158,7 +157,7 @@ def main():
         include_schemas=include_schemas,
         exclude_schemas=exclude_schemas
     )
-    
+
     print("\n" + "=" * 60)
     print("COMPLETE - DDL parsed successfully")
     print("=" * 60)
