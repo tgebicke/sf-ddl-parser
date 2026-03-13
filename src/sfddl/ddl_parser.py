@@ -7,8 +7,21 @@ from pathlib import Path
 
 def _normalize_blank_lines(content: str) -> str:
     lines = content.split('\n')
-    blank = sum(1 for l in lines if not l.strip())
-    non_blank = len(lines) - blank
+
+    # Find the line marking the start of the body (after AS or AS $$)
+    as_index = None
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if re.match(r'^AS(\s+\$\$|\s*$)', stripped, re.IGNORECASE):
+            as_index = i
+            break
+
+    # Use lines after AS for ratio; fall back to all lines if AS not found
+    check_lines = lines[as_index + 1:] if as_index is not None else lines
+
+    blank = sum(1 for l in check_lines if not l.strip())
+    non_blank = len(check_lines) - blank
+
     if non_blank > 0 and blank >= non_blank:
         content = re.sub(r'\n{2,}', '\n', content)
     return content
