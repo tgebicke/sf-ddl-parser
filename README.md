@@ -14,6 +14,7 @@ A CLI tool that extracts DDL from Snowflake databases and parses it into an orga
 - Configurable schema inclusions/exclusions
 - Automatic backup of previous DDL dumps
 - Support for multiple authentication methods (password, Okta SSO, key pair)
+- Automatic normalization of CRLF-induced double-spacing in view and procedure bodies
 
 ## Installation
 
