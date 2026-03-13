@@ -6,6 +6,7 @@ from pathlib import Path
 
 
 def _normalize_blank_lines(content: str) -> str:
+    content = content.replace('\r\n', '\n')
     lines = content.split('\n')
 
     # Find the line marking the start of the body (after AS or AS $$)
