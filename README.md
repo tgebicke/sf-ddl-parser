@@ -15,6 +15,7 @@ A CLI tool that extracts DDL from Snowflake databases and parses it into an orga
 - Automatic backup of previous DDL dumps
 - Support for multiple authentication methods (password, Okta SSO, key pair)
 - Automatic normalization of CRLF-induced double-spacing in view and procedure bodies
+- Optional restoration of stored procedure and function bodies from Snowflake's single-quote encoding back to `$$`-delimited format
 
 ## Installation
 
@@ -95,6 +96,7 @@ sfddl --config my_config.json
 | `--config FILE` | Path to configuration file (default: `sfddl.json`) |
 | `--no-pull` | Skip pulling from Snowflake, use existing DDL file |
 | `--force-parse` | Force parsing even if DDL hasn't changed |
+| `--restore-sp-formatting` | Restore procedure and function bodies from Snowflake's single-quote encoding to `$$`-delimited format |
 
 ### Examples
 
@@ -104,6 +106,40 @@ sfddl --no-pull --force-parse
 
 # Force a fresh parse even if no changes detected
 sfddl --force-parse
+
+# Restore procedure bodies to $$-delimited format
+sfddl --restore-sp-formatting
+
+# Re-parse existing DDL and restore procedure formatting
+sfddl --no-pull --restore-sp-formatting
+```
+
+### Stored Procedure and Function Formatting
+
+Snowflake's `GET_DDL()` encodes procedure and function bodies as single-quoted strings with escaped internal quotes (`''`), regardless of how they were originally authored:
+
+```sql
+-- Snowflake DDL output
+CREATE OR REPLACE PROCEDURE MY_PROC()
+RETURNS VARCHAR
+LANGUAGE SQL
+AS 'BEGIN
+    SELECT ''hello'';
+END';
+```
+
+The `--restore-sp-formatting` flag converts these back to the more readable `$$`-delimited format:
+
+```sql
+-- Restored format
+CREATE OR REPLACE PROCEDURE MY_PROC()
+RETURNS VARCHAR
+LANGUAGE SQL
+AS $$
+BEGIN
+    SELECT 'hello';
+END
+$$;
 ```
 
 ## Output Structure

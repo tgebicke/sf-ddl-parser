@@ -12,6 +12,7 @@ from sfddl.ddl_parser import (
     get_schema_name,
     extract_multiline_comments,
     restore_comments,
+    restore_sp_formatting,
     prune_removed_files,
     parse_sql_by_database_and_schema,
 )
@@ -316,3 +317,91 @@ def test_parse_sql_by_database_and_schema_include_schemas(minimal_ddl, tmp_path,
     db_dir = out_dir / "TEST_DB"
     assert (db_dir / "FOO").exists()
     assert not (db_dir / "BAR").exists()
+
+
+# --- restore_sp_formatting ---
+
+
+def test_restore_sp_formatting_basic():
+    content = "CREATE OR REPLACE PROCEDURE \"P\"()\nRETURNS VARCHAR\nLANGUAGE SQL\nAS 'BEGIN\n    SELECT ''hello'';\nEND';"
+    result = restore_sp_formatting(content)
+    assert "AS $$" in result
+    assert "SELECT 'hello';" in result
+    assert "''" not in result
+    assert result.endswith("$$;")
+
+
+def test_restore_sp_formatting_no_op_on_dollar_quoted():
+    content = "CREATE OR REPLACE PROCEDURE \"P\"()\nRETURNS VARCHAR\nLANGUAGE SQL\nAS $$\nBEGIN\n    SELECT 'hello';\nEND\n$$;"
+    result = restore_sp_formatting(content)
+    assert result == content
+
+
+def test_restore_sp_formatting_no_op_without_as_quote():
+    content = "CREATE TABLE T (id NUMBER);"
+    result = restore_sp_formatting(content)
+    assert result == content
+
+
+def test_restore_sp_formatting_empty_body():
+    content = "CREATE OR REPLACE PROCEDURE \"P\"()\nRETURNS VARCHAR\nLANGUAGE SQL\nAS '';"
+    result = restore_sp_formatting(content)
+    assert "AS $$\n" in result
+    assert result.endswith("$$;")
+
+
+def test_restore_sp_formatting_function():
+    content = "CREATE OR REPLACE FUNCTION \"F\"(x NUMBER)\nRETURNS VARCHAR\nLANGUAGE SQL\nAS 'SELECT ''hi''';"
+    result = restore_sp_formatting(content)
+    assert "AS $$" in result
+    assert "SELECT 'hi'" in result
+    assert "''" not in result
+    assert result.endswith("$$;")
+
+
+def test_parse_sql_restore_sp_fmt(tmp_path, capsys):
+    ddl = (
+        "create or replace schema FOO;\n"
+        "create or replace procedure \"MY_PROC\"()\n"
+        "RETURNS VARCHAR\n"
+        "LANGUAGE SQL\n"
+        "AS 'BEGIN\n    RETURN ''done'';\nEND';"
+    )
+    out_dir = tmp_path / "out"
+    parse_sql_by_database_and_schema(
+        ddl,
+        database_name_override="TEST_DB",
+        output_dir_override=str(out_dir),
+        restore_sp_fmt=True,
+    )
+    capsys.readouterr()
+    proc_file = out_dir / "TEST_DB" / "FOO" / "procedures" / "MY_PROC().sql"
+    assert proc_file.exists()
+    contents = proc_file.read_text()
+    assert "AS $$" in contents
+    assert "RETURN 'done';" in contents
+    assert "''" not in contents
+
+
+def test_parse_sql_restore_sp_fmt_function(tmp_path, capsys):
+    ddl = (
+        "create or replace schema FOO;\n"
+        "create or replace function \"MY_FUNC\"(x NUMBER)\n"
+        "RETURNS VARCHAR\n"
+        "LANGUAGE SQL\n"
+        "AS 'SELECT ''result''';"
+    )
+    out_dir = tmp_path / "out"
+    parse_sql_by_database_and_schema(
+        ddl,
+        database_name_override="TEST_DB",
+        output_dir_override=str(out_dir),
+        restore_sp_fmt=True,
+    )
+    capsys.readouterr()
+    func_file = out_dir / "TEST_DB" / "FOO" / "functions" / "MY_FUNC(NUMBER).sql"
+    assert func_file.exists()
+    contents = func_file.read_text()
+    assert "AS $$" in contents
+    assert "SELECT 'result'" in contents
+    assert "''" not in contents

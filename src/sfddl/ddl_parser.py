@@ -28,6 +28,40 @@ def _normalize_blank_lines(content: str) -> str:
     return content
 
 
+def restore_sp_formatting(object_content: str) -> str:
+    """
+    Restore a stored procedure body from Snowflake's single-quote encoding
+    to $$-delimited format.
+
+    Transforms:
+        AS 'BEGIN\\n    SELECT ''hello'';\\nEND';
+    Into:
+        AS $$\\nBEGIN\\n    SELECT 'hello';\\nEND\\n$$;
+
+    Returns the content unchanged if it already uses $$ delimiters or the
+    expected AS '...' pattern is not found.
+    """
+    match = re.search(r"(AS\s*)'", object_content, re.IGNORECASE)
+    if not match:
+        return object_content  # Already in $$ format or unrecognized — skip
+
+    open_quote_pos = match.end() - 1  # position of the opening '
+
+    close_match = re.search(r"'(;?\s*)$", object_content, re.DOTALL)
+    if not close_match or close_match.start() <= open_quote_pos:
+        return object_content  # Can't locate closing quote safely — skip
+
+    close_quote_pos = close_match.start()  # position of the closing '
+
+    body = object_content[open_quote_pos + 1 : close_quote_pos]
+    body = body.replace("''", "'")
+
+    before = object_content[:open_quote_pos]
+    after = object_content[close_quote_pos + 1:]  # after closing ' (preserves ;)
+
+    return before + "$$\n" + body + "\n$$" + after
+
+
 def prune_removed_files(database_dir: Path, expected_paths: set[Path], dry_run: bool = False) -> dict:
     """
     Remove files under `database_dir` that are not present in `expected_paths`.
@@ -441,7 +475,7 @@ def get_file_basename_for_object(object_content: str, object_type: str | None) -
     return _sanitize_filename_basename(name)
 
 
-def parse_sql_by_database_and_schema(sql_content, database_name_override=None, output_dir_override=None, include_schemas=None, exclude_schemas=None):
+def parse_sql_by_database_and_schema(sql_content, database_name_override=None, output_dir_override=None, include_schemas=None, exclude_schemas=None, restore_sp_fmt=False):
     """Parse SQL content and organize objects by database and schema.
     
     Args:
@@ -553,7 +587,10 @@ def parse_sql_by_database_and_schema(sql_content, database_name_override=None, o
                 
                 # Restore comments before writing
                 object_content_with_comments = restore_comments(object_content, comments_dict)
-                
+
+                if restore_sp_fmt and object_type in ('procedures', 'secure_procedures', 'functions', 'secure_functions'):
+                    object_content_with_comments = restore_sp_formatting(object_content_with_comments)
+
                 # Write object to file
                 file_path = type_dir / f"{file_basename}.sql"
                 try:

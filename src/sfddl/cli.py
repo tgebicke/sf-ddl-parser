@@ -58,6 +58,12 @@ def main():
         dest='force_parse',
         help='Force parsing even if DDL has not changed'
     )
+    parser.add_argument(
+        '--restore-sp-formatting',
+        action='store_true',
+        dest='restore_sp_formatting',
+        help='Restore procedure bodies from single-quote encoding to $$-delimited format'
+    )
     args = parser.parse_args()
     
     print("=" * 60)
@@ -87,6 +93,8 @@ def main():
         print("  Mode: --no-pull (using existing DDL file)")
     if args.force_parse:
         print("  Mode: --force-parse (skipping change detection)")
+    if args.restore_sp_formatting:
+        print("  Mode: --restore-sp-formatting (restoring procedure body formatting)")
     
     sql_file_path = Path(sql_file)
     
@@ -155,7 +163,8 @@ def main():
         database_name_override=database_name_override,
         output_dir_override=output_dir,
         include_schemas=include_schemas,
-        exclude_schemas=exclude_schemas
+        exclude_schemas=exclude_schemas,
+        restore_sp_fmt=args.restore_sp_formatting,
     )
 
     print("\n" + "=" * 60)
