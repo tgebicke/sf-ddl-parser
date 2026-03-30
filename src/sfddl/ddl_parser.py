@@ -155,6 +155,188 @@ def restore_comments(content: str, comments: dict[str, str]) -> str:
     return result
 
 
+def extract_comments(sql_content: str) -> tuple[str, dict[str, str]]:
+    """
+    Extract both /* */ multi-line and -- single-line comments, replacing each with a placeholder.
+    This must be run before any single-quote scanning so that quotes inside comments
+    (e.g. in procedure headers like  EXECUTE AS CALLER -- it's the owner) don't mislead the parser.
+    Returns (modified_content, comments_dict).
+    """
+    comments = {}
+    pattern = re.compile(r'/\*[\s\S]*?\*/|--[^\n]*')
+    matches = list(pattern.finditer(sql_content))
+    result = sql_content
+    for match in reversed(matches):
+        text = match.group(0)
+        h = hashlib.md5(text.encode('utf-8')).hexdigest()[:8]
+        comments[h] = text
+        result = result[:match.start()] + f"<comment={h}/>" + result[match.end():]
+    return result, comments
+
+
+def _in_no_go_zone(pos: int, no_go_zones: list[dict]) -> bool:
+    """Return True if pos falls within any no-go zone (inclusive of zone start)."""
+    return any(z['start'] <= pos < z['end'] for z in no_go_zones)
+
+
+def find_proc_boundaries(sql_content: str) -> list[dict]:
+    """
+    Pass 1: Scan the entire file for CREATE PROCEDURE / CREATE FUNCTION and determine
+    exact boundaries using the AS '...' string literal delimiter.
+    Returns list of {start, end, type, content} with character offsets into sql_content.
+    These become no-go zones for all subsequent passes.
+    """
+    boundaries = []
+    proc_re = re.compile(
+        r'CREATE\s+(?:OR\s+REPLACE\s+)?(?:SECURE\s+)?(?:PROCEDURE|FUNCTION)\s+',
+        re.IGNORECASE
+    )
+    # Match AS directly followed by optional whitespace then '.
+    # This avoids false matches on EXECUTE AS CALLER/OWNER (no quote after)
+    # and COMMENT='...as per...' (the 'as' there is not directly before a quote).
+    body_as_re = re.compile(r'\bAS\s*\'', re.IGNORECASE)
+    n = len(sql_content)
+
+    for match in proc_re.finditer(sql_content):
+        obj_start = match.start()
+
+        # Determine object type from the first line
+        eol = sql_content.find('\n', obj_start)
+        first_line = sql_content[obj_start: eol if eol != -1 else n]
+        obj_type = get_object_type(first_line) or 'procedures'
+
+        # Find the body-opening AS ' after the CREATE header
+        body_as_match = body_as_re.search(sql_content, match.end())
+        if not body_as_match:
+            continue
+
+        # The opening quote is the last character of the AS ' match
+        quote_start = body_as_match.end() - 1
+
+        # Walk forward handling '' escape sequences to find the closing quote
+        i = quote_start + 1
+        while i < n:
+            if sql_content[i] == "'":
+                if i + 1 < n and sql_content[i + 1] == "'":
+                    i += 2  # escaped quote ''
+                else:
+                    break   # closing quote
+            else:
+                i += 1
+
+        if i >= n:
+            continue  # unclosed string literal — skip
+
+        # i is on the closing quote; consume optional trailing semicolon
+        end_pos = i + 1
+        j = end_pos
+        while j < n and sql_content[j] in (' ', '\t', '\r'):
+            j += 1
+        if j < n and sql_content[j] == ';':
+            end_pos = j + 1
+
+        boundaries.append({
+            'start': obj_start,
+            'end': end_pos,
+            'type': obj_type,
+            'content': sql_content[obj_start:end_pos],
+        })
+
+    return boundaries
+
+
+def find_schema_boundaries(sql_content: str, no_go_zones: list[dict]) -> list[dict]:
+    """
+    Pass 2: Find all top-level CREATE SCHEMA positions, filtered against no-go zones.
+    Each schema's section runs from its start to the start of the next schema (or EOF).
+    Returns list of {start, end, schema_name}.
+    """
+    schema_re = re.compile(r'create\s+or\s+replace\s+(?:shared\s+)?schema\s+', re.IGNORECASE)
+    found = []
+    for match in schema_re.finditer(sql_content):
+        pos = match.start()
+        if _in_no_go_zone(pos, no_go_zones):
+            continue
+        eol = sql_content.find('\n', pos)
+        line = sql_content[pos: eol if eol != -1 else len(sql_content)]
+        schema_name = get_schema_name(line)
+        if schema_name:
+            found.append({'start': pos, 'schema_name': schema_name})
+
+    n = len(sql_content)
+    boundaries = []
+    for i, s in enumerate(found):
+        end = found[i + 1]['start'] if i + 1 < len(found) else n
+        boundaries.append({'start': s['start'], 'end': end, 'schema_name': s['schema_name']})
+    return boundaries
+
+
+def find_other_object_boundaries(sql_content: str, schema_boundaries: list[dict], no_go_zones: list[dict]) -> list[dict]:
+    """
+    Pass 3: Within each schema section, find all non-procedure/function CREATE statements,
+    skipping any whose position falls inside a no-go zone.
+    End boundary for each object = start of the next CREATE in the section (whether in a
+    no-go zone or not), so that proc bodies are never absorbed into a preceding object.
+    Returns list of {start, end, type, schema_name, content}.
+    """
+    create_re = re.compile(
+        r'create\s+(?:or\s+replace\s+)?(?:(?:transient|volatile)\s+)?'
+        r'(?:table|view|procedure|function|sequence|type|warehouse|database|schema|stage|'
+        r'file\s+format|pipe|stream|task|user|role|grant|integration|external\s+table|'
+        r'materialized\s+view|secure\s+view|secure\s+function|secure\s+procedure|'
+        r'secure\s+table|secure\s+sequence|secure\s+type|secure\s+warehouse|secure\s+stage|'
+        r'secure\s+file\s+format|secure\s+pipe|secure\s+stream|secure\s+task|secure\s+user|'
+        r'secure\s+role|secure\s+grant|secure\s+integration|secure\s+api\s+integration|'
+        r'secure\s+notification\s+integration|secure\s+security\s+integration|'
+        r'secure\s+external\s+table|secure\s+materialized\s+view|shared\s+schema|'
+        r'api\s+integration|notification\s+integration|security\s+integration)',
+        re.IGNORECASE
+    )
+
+    boundaries = []
+
+    for schema in schema_boundaries:
+        s_start = schema['start']
+        s_end = schema['end']
+        schema_name = schema['schema_name']
+        section = sql_content[s_start:s_end]
+
+        matches = list(create_re.finditer(section))
+        if not matches:
+            continue
+
+        # All CREATE starts (including those in no-go zones) serve as end boundaries
+        # for preceding objects, so a non-proc object never absorbs a proc's content.
+        boundary_positions = sorted({m.start() for m in matches} | {len(section)})
+
+        for m in matches:
+            abs_pos = s_start + m.start()
+
+            # Skip anything inside a no-go zone
+            if _in_no_go_zone(abs_pos, no_go_zones):
+                continue
+
+            # Determine type; skip procs/functions — those are handled in Pass 1
+            eol = section.find('\n', m.start())
+            first_line = section[m.start(): eol if eol != -1 else len(section)]
+            obj_type = get_object_type(first_line)
+            if obj_type in ('procedures', 'functions', 'secure_procedures', 'secure_functions'):
+                continue
+
+            end_rel = next((bp for bp in boundary_positions if bp > m.start()), len(section))
+            content = section[m.start():end_rel].strip()
+
+            boundaries.append({
+                'start': abs_pos,
+                'end': s_start + end_rel,
+                'type': obj_type,
+                'schema_name': schema_name,
+                'content': content,
+            })
+
+    return boundaries
+
+
 def get_database_name(sql_content):
     """Extract the database name from the SQL content."""
     # Look for database name in various patterns
@@ -477,172 +659,135 @@ def get_file_basename_for_object(object_content: str, object_type: str | None) -
 
 def parse_sql_by_database_and_schema(sql_content, database_name_override=None, output_dir_override=None, include_schemas=None, exclude_schemas=None, restore_sp_fmt=False):
     """Parse SQL content and organize objects by database and schema.
-    
-    Args:
-        sql_content: The SQL DDL content to parse
-        database_name_override: Optional database name override
-        output_dir_override: Optional output directory override
-        include_schemas: List of schema names to include (takes precedence over exclude_schemas)
-        exclude_schemas: List of schema names to exclude from parsing
+
+    Discovery happens in three passes before any files are written:
+      Pass 1 — Find all procedure/function boundaries (no-go zones) using AS '...' scanning.
+      Pass 2 — Find all schema boundaries, filtered against no-go zones.
+      Pass 3 — Find all other object boundaries within each schema section, skipping no-go zones.
     """
     if include_schemas is None:
         include_schemas = []
     if exclude_schemas is None:
         exclude_schemas = []
-    
-    # Normalize to uppercase for case-insensitive comparison
+
     include_schemas_upper = [s.upper() for s in include_schemas]
     exclude_schemas_upper = [s.upper() for s in exclude_schemas]
-    
-    # Determine filter mode: include takes precedence over exclude
     use_include_mode = len(include_schemas_upper) > 0
-    # Extract multi-line comments and replace with placeholders
-    sql_content, comments_dict = extract_multiline_comments(sql_content)
 
-    # Extract database name from the SQL content
+    # Step 0: Strip all comments (/* */ and --) so quotes inside them don't mislead the parser
+    sql_content, comments_dict = extract_comments(sql_content)
+
+    # Detect database name
     if database_name_override:
         database_name = database_name_override
         print(f"Using specified database name: {database_name}")
     else:
         database_name = get_database_name(sql_content)
         print(f"Auto-detected database name: {database_name}")
- 
-    # Create base directory for all databases
+
     base_dir = Path(output_dir_override) if output_dir_override else Path('databases')
     base_dir.mkdir(exist_ok=True)
- 
-    # Find all schema statements and their line numbers
-    schema_positions = []
-    lines = sql_content.split('\n')
 
-    for i, line in enumerate(lines):
-        if re.search(r'create\s+or\s+replace\s+schema', line, re.IGNORECASE):
-            schema_name = get_schema_name(line)
-            if schema_name:
-                schema_positions.append((i, schema_name))
-    
-    if not schema_positions:
+    # Pass 1: Wall off procedures and functions
+    no_go_zones = find_proc_boundaries(sql_content)
+    print(f"Found {len(no_go_zones)} procedure/function(s)")
+
+    # Pass 2: Find schema boundaries (filtered against no-go zones)
+    schema_boundaries = find_schema_boundaries(sql_content, no_go_zones)
+    if not schema_boundaries:
         print("Warning: No schema statements found. Objects will be placed in a default schema.")
-        schema_positions = [(0, 'default_schema')]
-    
-    print(f"Found {len(schema_positions)} schema(s)")
-    
-    # Process each schema section
+        schema_boundaries = [{'start': 0, 'end': len(sql_content), 'schema_name': 'default_schema'}]
+    print(f"Found {len(schema_boundaries)} schema(s)")
+
+    # Apply schema include/exclude filter
+    def _schema_included(name):
+        upper = name.upper()
+        if use_include_mode:
+            return upper in include_schemas_upper
+        return upper not in exclude_schemas_upper
+
+    filtered_schemas = [s for s in schema_boundaries if _schema_included(s['schema_name'])]
+    for s in schema_boundaries:
+        if not _schema_included(s['schema_name']):
+            print(f"  Skipping schema: {s['schema_name']}")
+
+    # Pass 3: Find all other objects within the filtered schema sections
+    other_boundaries = find_other_object_boundaries(sql_content, filtered_schemas, no_go_zones)
+
+    # Assign each proc/function to its schema, then combine with other objects
+    all_boundaries = []
+    for proc in no_go_zones:
+        schema_name = None
+        for s in filtered_schemas:
+            if s['start'] <= proc['start'] < s['end']:
+                schema_name = s['schema_name']
+                break
+        if schema_name is None:
+            continue  # proc not in any included schema
+        all_boundaries.append({**proc, 'schema_name': schema_name})
+
+    all_boundaries.extend(other_boundaries)
+    all_boundaries.sort(key=lambda b: b['start'])
+
+    # Write pass
     schema_objects = {}
     expected_paths = set()
-    for i, (line_num, schema_name) in enumerate(schema_positions):
-        # Filter schemas based on include/exclude mode
-        schema_upper = schema_name.upper()
-        if use_include_mode:
-            if schema_upper not in include_schemas_upper:
-                print(f"\nSkipping schema (not in include list): {schema_name}")
-                continue
-        else:
-            if schema_upper in exclude_schemas_upper:
-                print(f"\nSkipping excluded schema: {schema_name}")
-                continue
-        
-        print(f"\nProcessing schema: {schema_name}")
-        
-        # Determine the end of this schema section
-        if i < len(schema_positions) - 1:
-            next_schema_start = schema_positions[i + 1][0]
-        else:
-            next_schema_start = len(lines)
-        
-        # Find all CREATE statements in this schema section
-        schema_content = '\n'.join(lines[line_num:next_schema_start])
-        
-        # Find all CREATE statements
-        # Note: (?:transient|volatile)\s+ is optional to match modifiers before TABLE
-        create_pattern = r'create\s+(?:or\s+replace\s+)?(?:(?:transient|volatile)\s+)?(?:table|view|procedure|function|sequence|type|warehouse|database|schema|stage|file\s+format|pipe|stream|task|user|role|grant|integration|external\s+table|materialized\s+view|secure\s+view|secure\s+function|secure\s+procedure|secure\s+table|secure\s+sequence|secure\s+type|secure\s+warehouse|secure\s+stage|secure\s+file\s+format|secure\s+pipe|secure\s+stream|secure\s+task|secure\s+user|secure\s+role|secure\s+grant|secure\s+integration|secure\s+api\s+integration|secure\s+notification\s+integration|secure\s+security\s+integration|secure\s+external\s+table|secure\s+materialized\s+view|shared\s+schema|api\s+integration|notification\s+integration|security\s+integration)'
-        
-        create_matches = list(re.finditer(create_pattern, schema_content, re.IGNORECASE))
-        
-        print(f"  Found {len(create_matches)} CREATE statements")
-        
-        for j, match in enumerate(create_matches):
-            start_pos = match.start()
-            
-            # Find the end of this object
-            if j < len(create_matches) - 1:
-                end_pos = create_matches[j + 1].start()
-            else:
-                end_pos = len(schema_content)
-            
-            # Extract the object content
-            object_content = schema_content[start_pos:end_pos].strip()
-            
-            # Determine object type and file basename (name + signature for procedures/functions)
-            first_line = object_content.split('\n')[0]
-            object_type = get_object_type(first_line)
-            file_basename = get_file_basename_for_object(object_content, object_type)
-            
-            if file_basename and object_type:
-                # Create directory structure
-                database_dir = base_dir / database_name
-                schema_dir = database_dir / schema_name
-                type_dir = schema_dir / object_type
-                type_dir.mkdir(parents=True, exist_ok=True)
-                
-                # Restore comments before writing
-                object_content_with_comments = restore_comments(object_content, comments_dict)
 
-                if restore_sp_fmt and object_type in ('procedures', 'secure_procedures', 'functions', 'secure_functions'):
-                    object_content_with_comments = restore_sp_formatting(object_content_with_comments)
+    for boundary in all_boundaries:
+        schema_name = boundary['schema_name']
+        obj_type = boundary['type']
+        content = boundary['content']
 
-                # Write object to file
-                file_path = type_dir / f"{file_basename}.sql"
-                try:
-                    with open(file_path, 'w', encoding='utf-8') as f:
-                        f.write(_normalize_blank_lines(object_content_with_comments))
-                    print(f"    ✓ Saved: {object_type}/{file_basename}.sql")
-                    expected_paths.add(file_path.resolve())
-                except Exception as e:
-                    print(f"    ✗ Error saving {file_basename}: {str(e)}")
-                    continue
-                
-                # Track object count
-                if schema_name not in schema_objects:
-                    schema_objects[schema_name] = {}
-                if object_type not in schema_objects[schema_name]:
-                    schema_objects[schema_name][object_type] = 0
-                schema_objects[schema_name][object_type] += 1
-            else:
-                print(f"    ⚠ Warning: Could not determine type/name for object starting with: {first_line[:50]}...")
-    # After all objects are written
-    database_dir = (base_dir / database_name)
-    do_prune = True  # or pass via CLI
-    dry_run = False  # or pass via CLI
+        if not obj_type:
+            print(f"    ⚠ Warning: Could not determine type for: {content.split(chr(10))[0][:50]}...")
+            continue
 
-    if do_prune:
-        print("\nPruning files not present in the current dump...")
-        summary = prune_removed_files(database_dir, expected_paths, dry_run=dry_run)
-        if dry_run:
-            print("Prune summary (dry-run): would remove "
-                f"{summary.get('removed_files',0)} files and "
-                f"{summary.get('removed_dirs',0)} empty dirs")
-        else:
-            print("Prune summary: removed "
-                f"{summary.get('removed_files',0)} files and "
-                f"{summary.get('removed_dirs',0)} empty dirs")
-            
-    
-    # Print summary
-    print("\n" + "="*60)
+        # Restore comments, then optionally reformat SP body
+        content_out = restore_comments(content, comments_dict)
+        if restore_sp_fmt and obj_type in ('procedures', 'secure_procedures', 'functions', 'secure_functions'):
+            content_out = restore_sp_formatting(content_out)
+
+        file_basename = get_file_basename_for_object(content_out, obj_type)
+        if not file_basename:
+            print(f"    ⚠ Warning: Could not determine name for: {content_out.split(chr(10))[0][:50]}...")
+            continue
+
+        type_dir = base_dir / database_name / schema_name / obj_type
+        type_dir.mkdir(parents=True, exist_ok=True)
+
+        file_path = type_dir / f"{file_basename}.sql"
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(_normalize_blank_lines(content_out))
+            print(f"    ✓ Saved: {schema_name}/{obj_type}/{file_basename}.sql")
+            expected_paths.add(file_path.resolve())
+        except Exception as e:
+            print(f"    ✗ Error saving {file_basename}: {str(e)}")
+            continue
+
+        schema_objects.setdefault(schema_name, {})
+        schema_objects[schema_name].setdefault(obj_type, 0)
+        schema_objects[schema_name][obj_type] += 1
+
+    # Prune files no longer in the dump
+    database_dir = base_dir / database_name
+    print("\nPruning files not present in the current dump...")
+    summary = prune_removed_files(database_dir, expected_paths)
+    print(f"Prune summary: removed {summary.get('removed_files', 0)} files and {summary.get('removed_dirs', 0)} empty dirs")
+
+    # Summary
+    print("\n" + "=" * 60)
     print("DATABASE AND SCHEMA ORGANIZATION SUMMARY")
-    print("="*60)
+    print("=" * 60)
     print(f"Database: {database_name}")
     print(f"Output Directory: {base_dir}")
-    
     total_objects = 0
-    for schema_name, types in schema_objects.items():
+    for sn, types in schema_objects.items():
         schema_total = sum(types.values())
         total_objects += schema_total
-        print(f"\n{schema_name}: {schema_total} objects")
-        for obj_type, count in types.items():
-            print(f"  {obj_type}: {count}")
-    
+        print(f"\n{sn}: {schema_total} objects")
+        for ot, count in types.items():
+            print(f"  {ot}: {count}")
     print(f"\nTotal objects organized: {total_objects}")
     print(f"Total schemas: {len(schema_objects)}")
     return schema_objects
