@@ -17,7 +17,7 @@ Requirements:
 
 Usage:
     python refresh_fulldb.py [--config CONFIG_FILE] [--database DATABASE_NAME]
-    python refresh_fulldb.py --auth external --role TEAM_CRM_ADMIN_ROLE
+    python refresh_fulldb.py --auth external --role ROLE_NAME
 """
 
 import os
@@ -43,7 +43,7 @@ except ImportError:
     default_backend = None
     serialization = None
 
-def load_config(config_file: str = "sfddl.json") -> Dict[str, Any]:
+def load_config(config_file: str = "sfddl.json", validate_auth: bool = True) -> Dict[str, Any]:
     """Load Snowflake connection configuration from JSON file."""
     config_path = Path(config_file)
     
@@ -55,7 +55,7 @@ def load_config(config_file: str = "sfddl.json") -> Dict[str, Any]:
             "warehouse": "your_warehouse",
             "database": "your_database",
             "schema": "your_schema",
-            "role": "TEAM_CRM_ADMIN_ROLE",
+            "role": "role_name",
             "auth_method": "external",
             "password": "your_password"
         }
@@ -67,7 +67,7 @@ def load_config(config_file: str = "sfddl.json") -> Dict[str, Any]:
         print("Please edit the file with your Snowflake credentials and run again.")
         print("\nFor external browser authentication, set:")
         print("  'auth_method': 'external'")
-        print("  'role': 'TEAM_CRM_ADMIN_ROLE'")
+        print("  'role': 'role_name'")
         print("  Remove or leave empty 'password' field")
         sys.exit(1)
     
@@ -75,23 +75,22 @@ def load_config(config_file: str = "sfddl.json") -> Dict[str, Any]:
         with open(config_path, 'r') as f:
             config = json.load(f)
         
-        # Validate required fields based on auth method
-        auth_method = config.get('auth_method', 'password')
-        
-        # Always require these fields
-        required_fields = ['account', 'user', 'warehouse', 'database']
-        
-        # Only require password for password auth (not for external, okta, or keypair)
-        if auth_method not in ('external', 'okta', 'keypair'):
-            required_fields.append('password')
-        
+        # Validate required fields
+        required_fields = ['database']
+
+        if validate_auth:
+            # Require Snowflake connection fields when pulling from Snowflake
+            auth_method = config.get('auth_method', 'password')
+            required_fields += ['account', 'user', 'warehouse']
+            # Only require password for password auth (not for external, okta, or keypair)
+            if auth_method not in ('external', 'okta', 'keypair'):
+                required_fields.append('password')
+
         missing_fields = [field for field in required_fields if field not in config or not config[field]]
-        
+
         if missing_fields:
             print(f"Error: Missing required configuration fields: {missing_fields}")
             print(f"Please check your config file: {config_path}")
-            if 'password' in missing_fields and auth_method == 'external':
-                print("Note: Password is not required for external browser authentication")
             sys.exit(1)
         
         return config
@@ -113,7 +112,7 @@ def connect_to_snowflake(config: Dict[str, Any]):
             'warehouse': config.get('warehouse'),
             'database': config.get('database'),
             'schema': config.get('schema'),
-            'role': config.get('role', 'TEAM_CRM_ADMIN_ROLE')
+            'role': config.get('role')
         }
         
         # Handle authentication method
@@ -143,10 +142,6 @@ def connect_to_snowflake(config: Dict[str, Any]):
                 conn_params['insecure_mode'] = False  # Keep SSL enabled
                 conn_params['client_session_keep_alive'] = True
                 conn_params['client_session_keep_alive_heartbeat_frequency'] = 3600
-                
-                # Try with SSL verification disabled for US Gov Cloud (testing only)
-                print("Attempting connection with SSL verification disabled...")
-                conn_params['insecure_mode'] = True
                 
         elif auth_method == 'keypair':
             # Key pair authentication using environment variables
@@ -361,8 +356,7 @@ def _standalone_main():
     )
     parser.add_argument(
         '--role',
-        default='TEAM_CRM_ADMIN_ROLE',
-        help='Snowflake role to use (default: TEAM_CRM_ADMIN_ROLE)'
+        help='Snowflake role to use'
     )
     
     args = parser.parse_args()

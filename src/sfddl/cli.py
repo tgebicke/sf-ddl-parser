@@ -70,8 +70,8 @@ def main():
     print("Snowflake DDL Organizer")
     print("=" * 60)
     
-    # Load configuration
-    config = load_config(args.config)
+    # Load configuration (skip auth validation when not pulling from Snowflake)
+    config = load_config(args.config, validate_auth=not args.no_pull)
     
     # Extract config values with defaults
     sql_file = config.get('sql_file', 'full_db/fulldb.sql')
