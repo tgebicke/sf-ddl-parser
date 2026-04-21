@@ -4,18 +4,39 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
-A CLI tool that extracts DDL from Snowflake databases and parses it into an organized folder structure mirroring the Snowflake UI.
+A CLI tool that extracts your entire Snowflake database DDL in a single API call and organizes it into a clean, browsable folder structure — one file per object, mirroring the Snowflake UI hierarchy.
 
 ## Features
 
-- Pull complete database DDL from Snowflake using `GET_DDL()`
-- Parse DDL into organized folder structure by schema and object type
-- Automatic change detection - only re-parses when DDL changes
-- Configurable schema inclusions/exclusions
-- Automatic backup of previous DDL dumps
-- Support for multiple authentication methods (password, Okta SSO, key pair)
-- Automatic normalization of CRLF-induced double-spacing in view and procedure bodies
-- Optional restoration of stored procedure and function bodies from Snowflake's single-quote encoding back to `$$`-delimited format
+### Lightning-Fast Extraction via `GET_DDL()`
+Rather than making individual API calls for each object in your database, `sfddl` uses Snowflake's `GET_DDL()` to retrieve the complete database schema in **one round trip**. For large databases with hundreds or thousands of objects, this is orders of magnitude faster than object-by-object approaches.
+
+### True Sync — Deletions Included
+`sfddl` doesn't just add or update files — it **prunes files for objects that no longer exist** in Snowflake. Drop a table, rename a view, or delete a procedure, and the corresponding file disappears on the next run. Your local folder is always an accurate mirror of what's in Snowflake, not an ever-growing accumulation.
+
+### AI and Agent Ready
+With your entire database DDL organized as individual files on disk, **AI coding assistants and LLM agents can reason about your full schema without hitting Snowflake at all**. Feed a schema folder to your agent, ask questions about table relationships, or use it as context when generating SQL — everything is already local, structured, and readable.
+
+### Smart Change Detection
+`sfddl` computes an MD5 hash of the DDL before and after each pull. If nothing changed in Snowflake, **parsing is skipped entirely**. Only real changes trigger a re-parse, keeping runs fast on unchanged databases.
+
+### Multiple Object Types Supported
+Tables, views, procedures, functions, sequences, streams, pipes, tasks, stages, file formats, and many more — all organized into typed subfolders per schema.
+
+### Overloaded Procedure and Function Support
+Procedures and functions with the same name but different argument signatures are **disambiguated automatically** using types-only argument signatures in the filename (e.g., `MY_PROC(VARCHAR,NUMBER).sql`). No overloads are lost or overwritten.
+
+### Clean, Readable Procedure Bodies
+Snowflake's `GET_DDL()` encodes procedure and function bodies using escaped single-quotes. The optional `--restore-sp-formatting` flag converts them back to the familiar `$$`-delimited format, making stored procedures readable and ready for version control.
+
+### Flexible Schema Filtering
+Include or exclude specific schemas by name — useful for ignoring `INFORMATION_SCHEMA`, focusing on a single team's schemas, or excluding schemas you don't own.
+
+### Multiple Authentication Methods
+Password, Okta SSO, external browser, and RSA key pair authentication are all supported out of the box.
+
+### Automatic Backups
+Every DDL pull is backed up with a timestamp before overwriting, so you always have a history of prior snapshots.
 
 ## Installation
 
